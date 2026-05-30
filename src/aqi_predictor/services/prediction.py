@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -12,6 +13,7 @@ from aqi_predictor.services.features import (
     build_feature_frame,
     forecast_weather_payload_to_frame,
     json_records,
+    localize_event_time,
     pollution_payload_to_frame,
     recent_history_stats,
 )
@@ -24,6 +26,9 @@ from aqi_predictor.services.storage import (
     FeatureStoreClient,
     MongoStore,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class PredictionService:
@@ -55,14 +60,15 @@ class PredictionService:
             pollution_payload, self.settings.city, self.settings.lat, self.settings.lon
         )
         weather = forecast_weather_payload_to_frame(weather_payload)
-        frame = build_feature_frame(pollution, weather)
+        frame = build_feature_frame(pollution, weather, timezone_name=self.settings.timezone)
         frame = frame.sort_values("event_time").head(horizon).copy()
         frame["forecast_horizon"] = np.arange(1, len(frame) + 1)
         return frame
 
     def predict(self, horizon: Optional[int] = None, sample: bool = False) -> Dict[str, Any]:
-        forecast_hours = horizon or self.settings.forecast_hours
+        forecast_hours = self._clamp_horizon(horizon or self.settings.forecast_hours)
         model, metadata = load_model_bundle(self.settings)
+        feature_columns = metadata.get("feature_columns")
         data_source = "sample" if sample or self.settings.use_sample_data else "openweather"
         forecast = self._forecast_frame(forecast_hours, sample=sample)
         history = self.latest_features(limit=48)
@@ -92,8 +98,8 @@ class PredictionService:
             working["aqi_rolling_24h"] = float(np.mean(recent_values[-24:]))
             working["aqi_change_rate"] = previous - before_previous
             row_frame = pd.DataFrame([working])
-            prediction = float(predict_frame(model, row_frame)[0])
-            prediction = float(np.clip(prediction, 0.0, 300.0))
+            prediction = float(predict_frame(model, row_frame, feature_columns=feature_columns)[0])
+            prediction = float(np.clip(prediction, 0.0, 500.0))
             predictions.append(prediction)
             recent_values.append(prediction)
             rows.append(working)
@@ -103,8 +109,12 @@ class PredictionService:
         prediction_frame["city"] = self.settings.city
         prediction_frame["created_at"] = datetime.now(timezone.utc)
 
-        records = json_records(prediction_frame)
-        prediction_store = "hopsworks"
+        records = json_records(prediction_frame, timezone_name=self.settings.timezone)
+        prediction_store = (
+            "hopsworks"
+            if self.settings.hopsworks_api_key and self.settings.hopsworks_project
+            else "local"
+        )
         try:
             self.feature_store.insert_feature_group(
                 PREDICTIONS_FEATURE_GROUP,
@@ -113,11 +123,21 @@ class PredictionService:
             )
         except Exception:
             prediction_store = "local"
+            logger.warning("Prediction feature-store insert failed; continuing with local response only.")
         self.mongo_store.insert_predictions(records)
 
+        generated_at = datetime.now(timezone.utc)
+        generated_at_local = (
+            pd.Series([generated_at])
+            .dt.tz_convert(self.settings.timezone)
+            .dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+            .iloc[0]
+        )
         return {
             "city": self.settings.city,
-            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "generated_at_local": generated_at_local,
+            "timezone": self.settings.timezone,
             "horizon_hours": int(len(records)),
             "data_source": data_source,
             "is_live": data_source == "openweather",
@@ -126,6 +146,9 @@ class PredictionService:
                 "name": metadata.get("model_name"),
                 "trained_at": metadata.get("trained_at"),
                 "metrics": metadata.get("metrics", {}),
+                "serving_source": metadata.get("serving_source"),
+                "registry_version": metadata.get("registry_version"),
+                "feature_count": metadata.get("feature_count"),
             },
             "predictions": records,
         }
@@ -134,23 +157,44 @@ class PredictionService:
         frame = self.latest_features(limit=1)
         if frame.empty:
             return {"city": self.settings.city, "latest": None}
-        return {"city": self.settings.city, "latest": json_records(frame.tail(1))[0]}
+        return {"city": self.settings.city, "latest": json_records(frame.tail(1), self.settings.timezone)[0]}
 
     def alerts_payload(self, limit: int = 20) -> Dict[str, Any]:
+        limit = max(1, min(int(limit), self.settings.max_api_limit))
         alerts = self.mongo_store.list_alerts(limit=limit)
         if not alerts:
             predictions = self.feature_store.read_feature_group(PREDICTIONS_FEATURE_GROUP, limit=200)
             if not predictions.empty and "alert_level" in predictions.columns:
                 filtered = predictions[predictions["alert_level"].isin(["unhealthy", "hazardous"])]
-                alerts = json_records(filtered.tail(limit))
+                alerts = json_records(filtered.tail(limit), self.settings.timezone)
         return {"city": self.settings.city, "alerts": alerts}
 
     def model_info_payload(self) -> Dict[str, Any]:
         model, metadata = load_model_bundle(self.settings)
         latest = self.latest_features(limit=200)
-        importance = feature_importance(model, latest) if not latest.empty else []
+        feature_columns = metadata.get("feature_columns")
+        importance = feature_importance(model, latest, feature_columns=feature_columns) if not latest.empty else []
+        latest_event_time = None
+        latest_event_time_local = None
+        if not latest.empty and "event_time" in latest.columns:
+            latest_event_time = pd.to_datetime(latest["event_time"], utc=True).max()
+            latest_event_time_local = (
+                localize_event_time(pd.Series([latest_event_time]), self.settings.timezone)
+                .dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+                .iloc[0]
+            )
         return {
             "city": self.settings.city,
             "model": metadata,
+            "data_freshness": {
+                "latest_feature_event_time": latest_event_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                if latest_event_time is not None
+                else None,
+                "latest_feature_event_time_local": latest_event_time_local,
+                "timezone": self.settings.timezone,
+            },
             "feature_importance": importance,
         }
+
+    def _clamp_horizon(self, horizon: int) -> int:
+        return max(1, min(int(horizon), self.settings.max_forecast_hours))

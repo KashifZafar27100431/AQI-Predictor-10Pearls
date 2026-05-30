@@ -58,10 +58,11 @@ def _available(columns: Iterable[str], frame: pd.DataFrame) -> list[str]:
     return [column for column in columns if column in frame.columns]
 
 
-def build_report(frame: pd.DataFrame, source: str) -> str:
+def build_report(frame: pd.DataFrame, source: str, timezone_name: str = "Asia/Karachi") -> str:
     rows = len(frame)
     start = frame["event_time"].min().strftime("%Y-%m-%d %H:%M UTC")
     end = frame["event_time"].max().strftime("%Y-%m-%d %H:%M UTC")
+    local_time = frame["event_time"].dt.tz_convert(timezone_name)
     target = pd.to_numeric(frame[TARGET], errors="coerce")
     pollutant_columns = _available(POLLUTANTS, frame)
     weather_columns = _available(WEATHER, frame)
@@ -73,12 +74,12 @@ def build_report(frame: pd.DataFrame, source: str) -> str:
     missing_weather = frame[weather_columns].isna().mean().mul(100).sort_values(ascending=False).to_frame("missing_pct")
 
     by_hour = (
-        frame.assign(hour=frame["event_time"].dt.hour)
+        frame.assign(hour=local_time.dt.hour)
         .groupby("hour")[TARGET]
         .agg(["mean", "min", "max", "count"])
     )
     by_weekday = (
-        frame.assign(weekday=frame["event_time"].dt.day_name())
+        frame.assign(weekday=local_time.dt.day_name())
         .groupby("weekday")[TARGET]
         .agg(["mean", "min", "max", "count"])
         .reindex(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
@@ -113,17 +114,18 @@ def build_report(frame: pd.DataFrame, source: str) -> str:
 
     weather_missing_max = float(missing_weather["missing_pct"].max()) if not missing_weather.empty else 0.0
     weather_note = (
-        "Historical OpenWeather air-pollution backfill does not include historical weather. "
-        "Those weather columns are retained in the schema and filled during model preparation "
-        "with training-set medians, while live feature ingestion and forecast prediction use "
-        "OpenWeather current/forecast weather values. This keeps the Feature Store contract "
-        "stable, but the historical weather signal should be considered imputed."
+        "OpenWeather historical air-pollution backfill does not provide matching historical "
+        "weather on every plan. The current backfill uses cached `karachi_weather_raw` rows "
+        "when available. During training, weather columns above the configured missingness "
+        "threshold are excluded from the model feature schema instead of being treated as "
+        "reliable historical predictors. Live feature ingestion and forecast prediction still "
+        "use OpenWeather current/forecast weather values when available."
     )
     if weather_missing_max == 0.0:
         weather_note = (
-            "Weather fields are fully populated in this local feature cache. The backfill code "
-            "still supports missing historical weather and the training pipeline fills any gaps "
-            "with training-set medians."
+            "Weather fields are fully populated in this feature set. The backfill code still "
+            "supports missing historical weather, and the training pipeline excludes weather "
+            "columns only when missingness exceeds the configured threshold."
         )
 
     return f"""# Karachi AQI EDA Report
@@ -134,6 +136,7 @@ Generated from {source}.
 
 - Rows: {rows}
 - Time range: {start} to {end}
+- Local analysis timezone: `{timezone_name}`
 - Target: `{TARGET}` derived from pollutant concentrations with EPA-style breakpoints.
 
 ## AQI Distribution
@@ -187,8 +190,9 @@ Weather columns with more than 50% missing values are excluded from this correla
 
 def main() -> None:
     frame, source = _load_features()
+    settings = get_settings()
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(build_report(frame, source), encoding="utf-8")
+    REPORT_PATH.write_text(build_report(frame, source, timezone_name=settings.timezone), encoding="utf-8")
     print(f"Wrote {REPORT_PATH}")
 
 

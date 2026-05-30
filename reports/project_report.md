@@ -9,7 +9,7 @@ Predict Karachi AQI for the next 72 hours using a serverless ML pipeline with au
 - Feature pipeline fetches OpenWeather air pollution and weather data, computes time, pollutant, weather, lag, rolling, and AQI-change features, and writes them to Hopsworks-compatible feature groups.
 - Backfill pipeline creates historical training rows from OpenWeather history or deterministic sample data for local development.
 - Training pipeline evaluates persistence, moving average, Ridge Regression, Random Forest, HistGradientBoosting, and an optional TensorFlow dense model experiment.
-- Prediction pipeline loads the latest local/Hopsworks-registered model artifact and generates 72 hourly AQI forecasts.
+- Prediction pipeline loads the latest approved or latest available Hopsworks-registered model artifact first, with local fallback only for development, and generates 72 hourly AQI forecasts.
 - Flask exposes prediction, latest, alert, model-info, and health endpoints.
 - Streamlit provides the dashboard for current AQI, 3-day forecast, pollutant trends, hazardous alerts, model metrics, and feature importance.
 - `reports/eda_report.md` provides reproducible EDA generated from the Hopsworks feature group.
@@ -26,23 +26,23 @@ Core model inputs:
 
 ## Model Evaluation
 
-The training pipeline reports RMSE, MAE, and R² for every candidate and stores the selected model under `models/latest`. The same metadata is written to `reports/model_metrics.json` after training.
+The training pipeline reports RMSE, MAE, and R² for every candidate, stores the selected development artifact under `models/latest`, and registers the selected model directory in Hopsworks Model Registry. The same metadata is written to `reports/model_metrics.json` after training.
 
 Latest registered run:
 
 - Selected model: Ridge Regression.
-- Ridge metrics: RMSE 0.342, MAE 0.293, R² 0.997.
-- Random Forest metrics: RMSE 0.795, MAE 0.545, R² 0.986.
-- HistGradientBoosting metrics: RMSE 1.148, MAE 0.844, R² 0.971.
-- TensorFlow dense experiment: RMSE 9.298, MAE 8.245, R² -0.899.
-- Hopsworks model registry: `karachi_aqi_predictor`, latest verified version 3.
+- Ridge metrics: RMSE 0.385, MAE 0.317, R² 0.991.
+- Random Forest metrics: RMSE 0.671, MAE 0.561, R² 0.971.
+- HistGradientBoosting metrics: RMSE 1.293, MAE 1.076, R² 0.894.
+- TensorFlow dense experiment: RMSE 13.212, MAE 11.899, R² -10.056.
+- Hopsworks model registry: `karachi_aqi_predictor`, latest verified version 4.
 
 TensorFlow is retained as an experiment because it is part of the required stack, but the tabular dataset is small and the Ridge model currently performs better.
 
 ## Data Quality Notes
 
 - Historical OpenWeather air-pollution backfill does not return matching historical weather fields.
-- Historical weather columns are retained for schema consistency and filled by the training pipeline with training-set medians.
+- Cached historical weather rows are joined when available. Weather columns above the configured missingness threshold are excluded from the training feature schema instead of being treated as reliable predictors.
 - Live feature ingestion and prediction-time forecasts use OpenWeather current/forecast weather values.
 - AQI scores are derived from pollutant concentrations using EPA-style breakpoints; OpenWeather's native 1-5 level remains stored as `ow_aqi`.
 
@@ -62,4 +62,4 @@ Recommended free/serverless deployment:
 - MongoDB Atlas free tier for app cache and alert history.
 - GitHub Actions for scheduled feature/training jobs.
 - Streamlit Community Cloud for the dashboard.
-- Render/Fly.io/Railway or another lightweight free tier for Flask.
+- Cloud Run for the Flask API using the included Dockerfile and GitHub Actions deployment workflow.

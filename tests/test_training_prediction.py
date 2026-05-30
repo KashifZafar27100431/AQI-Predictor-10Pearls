@@ -19,6 +19,9 @@ class TrainingPredictionTests(unittest.TestCase):
                 local_data_dir=root / "data",
                 model_dir=root / "models",
                 use_sample_data=True,
+                hopsworks_api_key=None,
+                hopsworks_project=None,
+                mongodb_uri=None,
             )
             store = FeatureStoreClient(settings)
             history = generate_sample_history(settings, hours=24 * 10)
@@ -28,14 +31,18 @@ class TrainingPredictionTests(unittest.TestCase):
             self.assertIn("metrics", metadata)
             self.assertTrue((settings.model_dir / "model.joblib").exists())
 
-            payload = PredictionService(settings, feature_store=store).predict(horizon=12, sample=True)
-            self.assertEqual(payload["horizon_hours"], 12)
-            self.assertEqual(len(payload["predictions"]), 12)
+            payload = PredictionService(settings, feature_store=store).predict(horizon=72, sample=True)
+            self.assertEqual(payload["horizon_hours"], 72)
+            self.assertEqual(len(payload["predictions"]), 72)
             self.assertIn("predicted_aqi_score", payload["predictions"][0])
+            self.assertIn("event_time_local", payload["predictions"][0])
+            event_times = [row["event_time"] for row in payload["predictions"]]
+            self.assertEqual(event_times, sorted(event_times))
+            self.assertGreater(len({round(row["predicted_aqi_score"], 3) for row in payload["predictions"]}), 1)
 
             service = PredictionService(settings, feature_store=store)
             short_payload = service.predict(horizon=24, sample=True)
-            long_payload = service.predict(horizon=96, sample=True)
+            long_payload = service.predict(horizon=72, sample=True)
             self.assertAlmostEqual(
                 short_payload["predictions"][0]["predicted_aqi_score"],
                 long_payload["predictions"][0]["predicted_aqi_score"],

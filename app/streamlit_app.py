@@ -27,10 +27,11 @@ def _load_dotenv() -> None:
 
 
 def _forecast_chart(frame: pd.DataFrame) -> go.Figure:
+    x_column = "display_time" if "display_time" in frame.columns else "event_time"
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=frame["event_time"],
+            x=frame[x_column],
             y=frame["predicted_aqi_score"],
             mode="lines+markers",
             line={"color": "#2563eb", "width": 3},
@@ -44,6 +45,7 @@ def _forecast_chart(frame: pd.DataFrame) -> go.Figure:
         (100, 150, "#ffedd5"),
         (150, 200, "#fee2e2"),
         (200, 300, "#f3e8ff"),
+        (300, 500, "#fee2e2"),
     ]
     for low, high, color in bands:
         fig.add_hrect(y0=low, y1=high, line_width=0, fillcolor=color, opacity=0.35)
@@ -59,10 +61,18 @@ def _forecast_chart(frame: pd.DataFrame) -> go.Figure:
 
 def _daily_summary(frame: pd.DataFrame) -> pd.DataFrame:
     daily = frame.copy()
-    daily["date"] = pd.to_datetime(daily["event_time"]).dt.date
+    time_column = "display_time" if "display_time" in daily.columns else "event_time"
+    daily["date"] = pd.to_datetime(daily[time_column]).dt.date
     grouped = daily.groupby("date")["predicted_aqi_score"].agg(["min", "mean", "max"]).reset_index()
     grouped["category"] = grouped["max"].apply(label_from_score)
     return grouped
+
+
+def _latest_observed_record(service: PredictionService) -> dict:
+    try:
+        return service.latest_payload().get("latest") or {}
+    except Exception:
+        return {}
 
 
 def main() -> None:
@@ -85,7 +95,13 @@ def main() -> None:
     st.caption(f"{settings.city} forecast")
 
     with st.sidebar:
-        horizon = st.slider("Forecast hours", min_value=24, max_value=96, value=settings.forecast_hours, step=12)
+        horizon = st.slider(
+            "Forecast hours",
+            min_value=24,
+            max_value=settings.max_forecast_hours,
+            value=min(settings.forecast_hours, settings.max_forecast_hours),
+            step=12,
+        )
         sample = st.toggle("Sample mode", value=settings.use_sample_data or not service.openweather.configured)
         st.button("Refresh forecast", type="primary", use_container_width=True)
 
@@ -99,15 +115,23 @@ def main() -> None:
     if predictions.empty:
         st.warning("No predictions available.")
         st.stop()
-    predictions["event_time"] = pd.to_datetime(predictions["event_time"])
+    predictions["event_time"] = pd.to_datetime(predictions["event_time"], utc=True)
+    if "event_time_local" in predictions.columns:
+        predictions["display_time"] = pd.to_datetime(predictions["event_time_local"])
+    else:
+        predictions["display_time"] = predictions["event_time"]
 
-    latest = predictions.iloc[0]
-    color = color_from_score(float(latest["predicted_aqi_score"]))
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Next hour AQI", f"{latest['predicted_aqi_score']:.0f}")
-    col2.metric("Category", latest["aqi_category"])
-    col3.metric("Primary pollutant", str(latest.get("primary_pollutant", "unknown")).upper())
-    col4.metric("Worst forecast AQI", f"{predictions['predicted_aqi_score'].max():.0f}")
+    next_hour = predictions.iloc[0]
+    current = _latest_observed_record(service)
+    current_score = current.get("aqi_score")
+    color_score = float(current_score) if current_score is not None else float(next_hour["predicted_aqi_score"])
+    color = color_from_score(color_score)
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Current AQI", "N/A" if current_score is None else f"{float(current_score):.0f}")
+    col2.metric("Next hour AQI", f"{next_hour['predicted_aqi_score']:.0f}")
+    col3.metric("Category", current.get("aqi_category") or next_hour["aqi_category"])
+    col4.metric("Primary pollutant", str(current.get("primary_pollutant") or next_hour.get("primary_pollutant", "unknown")).upper())
+    col5.metric("Worst forecast AQI", f"{predictions['predicted_aqi_score'].max():.0f}")
 
     st.markdown(
         f"<div style='height:6px;background:{color};border-radius:3px;margin:4px 0 16px 0;'></div>",
@@ -137,7 +161,7 @@ def main() -> None:
         else:
             st.error(f"{len(unhealthy)} unhealthy forecast hours.")
             st.dataframe(
-                unhealthy[["event_time", "predicted_aqi_score", "aqi_category", "primary_pollutant"]].head(8),
+                unhealthy[["event_time_local", "predicted_aqi_score", "aqi_category", "primary_pollutant"]].head(8),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -146,17 +170,24 @@ def main() -> None:
         model_info = service.model_info_payload()
         metrics = model_info["model"].get("metrics", {})
         st.subheader("Model")
-        metric_cols = st.columns(4)
+        metric_cols = st.columns(5)
         metric_cols[0].metric("RMSE", f"{metrics.get('rmse', 0):.2f}")
         metric_cols[1].metric("MAE", f"{metrics.get('mae', 0):.2f}")
         metric_cols[2].metric("R²", f"{metrics.get('r2', 0):.2f}")
         metric_cols[3].metric("Name", model_info["model"].get("model_name", "unknown"))
+        metric_cols[4].metric("Source", model_info["model"].get("serving_source", "unknown"))
+        freshness = model_info.get("data_freshness", {})
+        st.caption(
+            f"Model trained: {model_info['model'].get('trained_at', 'unknown')} | "
+            f"Registry version: {model_info['model'].get('registry_version', 'local')} | "
+            f"Latest feature: {freshness.get('latest_feature_event_time_local') or 'unknown'}"
+        )
 
         importance = pd.DataFrame(model_info.get("feature_importance", []))
         if not importance.empty:
             st.bar_chart(importance.set_index("feature")["importance"])
     except Exception:
-        pass
+        st.info("Model explanation is temporarily unavailable.")
 
 
 if __name__ == "__main__":

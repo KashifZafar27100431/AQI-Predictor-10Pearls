@@ -1,0 +1,38 @@
+name: Deploy Flask API to Cloud Run
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: pearls-aqi-api
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          region: ${{ secrets.GCP_REGION }}
+          source: .
+          env_vars: |
+            AQI_CITY=Karachi
+            AQI_LAT=24.8607
+            AQI_LON=67.0011
+            AQI_TIMEZONE=Asia/Karachi
+            AQI_FORECAST_HOURS=72
+            AQI_MAX_FORECAST_HOURS=72
+            AQI_ALLOW_LOCAL_MODEL_FALLBACK=false
+            AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY=true
+            ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}
+            OPENWEATHER_API_KEY=${{ secrets.OPENWEATHER_API_KEY }}
+            HOPSWORKS_API_KEY=${{ secrets.HOPSWORKS_API_KEY }}
+            HOPSWORKS_PROJECT=${{ secrets.HOPSWORKS_PROJECT }}
+            MONGODB_URI=${{ secrets.MONGODB_URI }}
+            MONGODB_DATABASE=${{ secrets.MONGODB_DATABASE }}

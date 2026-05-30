@@ -68,7 +68,7 @@ def run(sample: bool = False) -> dict:
             client.current_air_pollution(), settings.city, settings.lat, settings.lon
         )
         raw_weather = current_weather_payload_to_frame(client.current_weather())
-        features = build_feature_frame(raw_air, raw_weather)
+        features = build_feature_frame(raw_air, raw_weather, timezone_name=settings.timezone)
 
     feature_store.insert_feature_group(RAW_AIR_FEATURE_GROUP, raw_air, primary_key=["city", "event_time"])
     feature_store.insert_feature_group(RAW_WEATHER_FEATURE_GROUP, raw_weather, primary_key=["event_time"])
@@ -95,4 +95,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

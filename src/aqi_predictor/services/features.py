@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 import pandas as pd
@@ -31,10 +32,27 @@ FEATURE_COLUMNS: List[str] = (
     POLLUTANT_COLUMNS + WEATHER_COLUMNS + TIME_COLUMNS + LAG_COLUMNS + ["forecast_horizon"]
 )
 TARGET_COLUMN = "aqi_score"
+DEFAULT_TIMEZONE = "Asia/Karachi"
 
 
 def _utc_from_unix(unix_ts: int) -> pd.Timestamp:
     return pd.to_datetime(int(unix_ts), unit="s", utc=True)
+
+
+def _zoneinfo(timezone_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
+def normalize_event_time(series: pd.Series) -> pd.Series:
+    return pd.to_datetime(series, utc=True)
+
+
+def localize_event_time(series: pd.Series, timezone_name: str = DEFAULT_TIMEZONE) -> pd.Series:
+    event_time = normalize_event_time(series)
+    return event_time.dt.tz_convert(_zoneinfo(timezone_name))
 
 
 def _safe_float(value: Any) -> float:
@@ -130,25 +148,36 @@ def merge_weather_features(pollution: pd.DataFrame, weather: Optional[pd.DataFra
                 frame[column] = np.nan
         return frame
 
-    left = frame.sort_values("event_time")
-    right = weather.sort_values("event_time")
-    merged = pd.merge_asof(left, right, on="event_time", direction="nearest")
+    left = frame.copy()
+    right = weather.copy()
+    left["event_time"] = pd.to_datetime(left["event_time"], utc=True).astype("datetime64[ns, UTC]")
+    right["event_time"] = pd.to_datetime(right["event_time"], utc=True).astype("datetime64[ns, UTC]")
+    left = left.sort_values("event_time")
+    right = right.sort_values("event_time")
+    merged = pd.merge_asof(
+        left,
+        right,
+        on="event_time",
+        direction="nearest",
+        tolerance=pd.Timedelta("90min"),
+    )
     for column in WEATHER_COLUMNS:
         if column not in merged.columns:
             merged[column] = np.nan
     return merged
 
 
-def add_time_features(frame: pd.DataFrame) -> pd.DataFrame:
+def add_time_features(frame: pd.DataFrame, timezone_name: str = DEFAULT_TIMEZONE) -> pd.DataFrame:
     if frame.empty:
         return frame
     result = frame.copy()
-    event_time = pd.to_datetime(result["event_time"], utc=True)
+    event_time = normalize_event_time(result["event_time"])
+    local_time = event_time.dt.tz_convert(_zoneinfo(timezone_name))
     result["event_time"] = event_time
-    result["hour"] = event_time.dt.hour
-    result["day"] = event_time.dt.day
-    result["month"] = event_time.dt.month
-    result["weekday"] = event_time.dt.weekday
+    result["hour"] = local_time.dt.hour
+    result["day"] = local_time.dt.day
+    result["month"] = local_time.dt.month
+    result["weekday"] = local_time.dt.weekday
     result["is_weekend"] = result["weekday"].isin([5, 6]).astype(int)
     return result
 
@@ -176,10 +205,13 @@ def add_lag_features(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_feature_frame(
-    pollution: pd.DataFrame, weather: Optional[pd.DataFrame] = None, forecast_horizon: int = 0
+    pollution: pd.DataFrame,
+    weather: Optional[pd.DataFrame] = None,
+    forecast_horizon: int = 0,
+    timezone_name: str = DEFAULT_TIMEZONE,
 ) -> pd.DataFrame:
     frame = merge_weather_features(pollution, weather)
-    frame = add_time_features(frame)
+    frame = add_time_features(frame, timezone_name=timezone_name)
     frame = add_lag_features(frame)
     if "forecast_horizon" not in frame.columns:
         frame["forecast_horizon"] = forecast_horizon
@@ -194,8 +226,8 @@ def normalize_numeric_features(frame: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def prepare_training_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    result = normalize_numeric_features(add_lag_features(add_time_features(frame)))
+def prepare_training_frame(frame: pd.DataFrame, timezone_name: str = DEFAULT_TIMEZONE) -> pd.DataFrame:
+    result = normalize_numeric_features(add_lag_features(add_time_features(frame, timezone_name=timezone_name)))
     required = FEATURE_COLUMNS + [TARGET_COLUMN]
     for column in required:
         if column not in result.columns:
@@ -207,14 +239,15 @@ def prepare_training_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def ensure_feature_columns(frame: pd.DataFrame) -> pd.DataFrame:
+def ensure_feature_columns(frame: pd.DataFrame, feature_columns: Optional[List[str]] = None) -> pd.DataFrame:
+    selected_columns = feature_columns or FEATURE_COLUMNS
     result = frame.copy()
-    for column in FEATURE_COLUMNS:
+    for column in selected_columns:
         if column not in result.columns:
             result[column] = 0.0
-    result[FEATURE_COLUMNS] = result[FEATURE_COLUMNS].replace([np.inf, -np.inf], np.nan)
-    result[FEATURE_COLUMNS] = result[FEATURE_COLUMNS].fillna(0.0)
-    return result[FEATURE_COLUMNS]
+    result[selected_columns] = result[selected_columns].replace([np.inf, -np.inf], np.nan)
+    result[selected_columns] = result[selected_columns].fillna(0.0)
+    return result[selected_columns]
 
 
 def recent_history_stats(history: pd.DataFrame) -> Dict[str, float]:
@@ -241,17 +274,27 @@ def recent_history_stats(history: pd.DataFrame) -> Dict[str, float]:
 
 def attach_prediction_metadata(frame: pd.DataFrame, predictions: Iterable[float]) -> pd.DataFrame:
     result = frame.copy()
-    result["predicted_aqi_score"] = [float(max(0.0, value)) for value in predictions]
+    result["predicted_aqi_score"] = [float(max(0.0, min(500.0, value))) for value in predictions]
     result["predicted_aqi_level"] = result["predicted_aqi_score"].apply(openweather_level_from_score)
     result["aqi_category"] = result["predicted_aqi_score"].apply(label_from_score)
     result["alert_level"] = result["predicted_aqi_score"].apply(alert_level)
     return result
 
 
-def json_records(frame: pd.DataFrame) -> List[Dict[str, Any]]:
+def add_display_time_columns(frame: pd.DataFrame, timezone_name: str = DEFAULT_TIMEZONE) -> pd.DataFrame:
+    if frame is None or frame.empty or "event_time" not in frame.columns:
+        return frame
+    result = frame.copy()
+    local_time = localize_event_time(result["event_time"], timezone_name=timezone_name)
+    result["event_time_local"] = local_time.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+    result["event_timezone"] = timezone_name
+    return result
+
+
+def json_records(frame: pd.DataFrame, timezone_name: Optional[str] = None) -> List[Dict[str, Any]]:
     if frame is None or frame.empty:
         return []
-    result = frame.copy()
+    result = add_display_time_columns(frame, timezone_name) if timezone_name else frame.copy()
     for column in result.columns:
         if pd.api.types.is_datetime64_any_dtype(result[column]):
             result[column] = result[column].dt.strftime("%Y-%m-%dT%H:%M:%SZ")

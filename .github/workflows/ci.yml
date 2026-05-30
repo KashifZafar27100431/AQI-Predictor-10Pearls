@@ -20,3 +20,5 @@ jobs:
           pip install -e .
       - name: Run tests
         run: python -m pytest
+      - name: Run lint
+        run: python -m ruff check src app tests scripts

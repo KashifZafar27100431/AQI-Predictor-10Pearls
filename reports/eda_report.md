@@ -4,22 +4,23 @@ Generated from Hopsworks feature group `karachi_aqi_features`.
 
 ## Dataset Coverage
 
-- Rows: 676
-- Time range: 2026-04-29 17:00 UTC to 2026-05-29 18:32 UTC
+- Rows: 695
+- Time range: 2026-04-29 17:00 UTC to 2026-05-30 13:00 UTC
+- Local analysis timezone: `Asia/Karachi`
 - Target: `aqi_score` derived from pollutant concentrations with EPA-style breakpoints.
 
 ## AQI Distribution
 
 |       |    aqi |
 |:------|-------:|
-| count | 676.00 |
-| mean  |  69.52 |
-| std   |  20.49 |
+| count | 695.00 |
+| mean  |  69.28 |
+| std   |  20.26 |
 | min   |  38.00 |
 | 10%   |  46.00 |
 | 25%   |  56.00 |
 | 50%   |  63.00 |
-| 75%   |  78.00 |
+| 75%   |  77.50 |
 | 90%   | 104.00 |
 | max   | 120.00 |
 
@@ -27,7 +28,7 @@ Generated from Hopsworks feature group `karachi_aqi_features`.
 
 | aqi_category                   |   hours |
 |:-------------------------------|--------:|
-| Moderate                       |  491.00 |
+| Moderate                       |  510.00 |
 | Good                           |   98.00 |
 | Unhealthy for Sensitive Groups |   87.00 |
 
@@ -35,75 +36,75 @@ Generated from Hopsworks feature group `karachi_aqi_features`.
 
 | primary_pollutant   |   hours |
 |:--------------------|--------:|
-| pm2_5               |  577.00 |
+| pm2_5               |  596.00 |
 | pm10                |   99.00 |
 
 ## Pollutant Summary
 
 |       |   mean |   std |   min |   50% |    max |
 |:------|-------:|------:|------:|------:|-------:|
-| pm2_5 |  18.72 | 10.07 |  6.80 | 15.46 |  43.09 |
-| pm10  |  72.75 | 23.89 | 35.27 | 65.89 | 136.37 |
-| co    |  93.22 | 15.01 | 70.29 | 87.60 | 129.49 |
+| pm2_5 |  18.60 |  9.95 |  6.80 | 15.39 |  43.09 |
+| pm10  |  72.66 | 23.61 | 35.27 | 67.27 | 136.37 |
+| co    |  92.76 | 15.06 | 70.29 | 87.08 | 129.49 |
 | no2   |   0.08 |  0.04 |  0.03 |  0.07 |   0.36 |
-| o3    |  56.80 | 21.13 | 31.14 | 50.45 | 111.58 |
-| so2   |   0.41 |  0.25 |  0.15 |  0.34 |   1.60 |
+| o3    |  56.25 | 21.10 | 31.14 | 49.92 | 111.58 |
+| so2   |   0.41 |  0.24 |  0.15 |  0.34 |   1.60 |
 | nh3   |   0.01 |  0.05 |  0.00 |  0.00 |   0.44 |
 
 ## Weather Missingness
 
 |            |   missing_pct |
 |:-----------|--------------:|
-| temp       |         99.70 |
-| feels_like |         99.70 |
-| pressure   |         99.70 |
-| humidity   |         99.70 |
-| wind_speed |         99.70 |
-| wind_deg   |         99.70 |
-| clouds     |         99.70 |
+| temp       |         99.14 |
+| feels_like |         99.14 |
+| pressure   |         99.14 |
+| humidity   |         99.14 |
+| wind_speed |         99.14 |
+| wind_deg   |         99.14 |
+| clouds     |         99.14 |
 
-Historical OpenWeather air-pollution backfill does not include historical weather. Those weather columns are retained in the schema and filled during model preparation with training-set medians, while live feature ingestion and forecast prediction use OpenWeather current/forecast weather values. This keeps the Feature Store contract stable, but the historical weather signal should be considered imputed.
+OpenWeather historical air-pollution backfill does not provide matching historical weather on every plan. The current backfill uses cached `karachi_weather_raw` rows when available. During training, weather columns above the configured missingness threshold are excluded from the model feature schema instead of being treated as reliable historical predictors. Live feature ingestion and forecast prediction still use OpenWeather current/forecast weather values when available.
 
 ## Hourly AQI Pattern
 
 |   hour |   mean |   min |    max |   count |
 |-------:|-------:|------:|-------:|--------:|
-|      0 |  70.68 | 40.00 | 117.00 |   28.00 |
-|      1 |  71.21 | 41.00 | 115.00 |   28.00 |
-|      2 |  71.32 | 42.00 | 115.00 |   28.00 |
-|      3 |  69.75 | 43.00 | 115.00 |   28.00 |
-|      4 |  70.71 | 43.00 | 114.00 |   28.00 |
-|      5 |  70.36 | 43.00 | 112.00 |   28.00 |
-|      6 |  70.11 | 43.00 | 109.00 |   28.00 |
-|      7 |  69.68 | 43.00 | 111.00 |   28.00 |
-|      8 |  69.29 | 42.00 | 113.00 |   28.00 |
-|      9 |  68.89 | 41.00 | 116.00 |   28.00 |
-|     10 |  68.75 | 41.00 | 119.00 |   28.00 |
-|     11 |  68.68 | 40.00 | 120.00 |   28.00 |
-|     12 |  68.43 | 40.00 | 119.00 |   28.00 |
-|     13 |  68.14 | 40.00 | 118.00 |   28.00 |
-|     14 |  68.11 | 38.00 | 117.00 |   28.00 |
-|     15 |  68.00 | 38.00 | 116.00 |   28.00 |
-|     16 |  67.86 | 38.00 | 116.00 |   28.00 |
-|     17 |  68.53 | 40.00 | 116.00 |   30.00 |
-|     18 |  68.67 | 41.00 | 117.00 |   30.00 |
-|     19 |  69.93 | 40.00 | 117.00 |   28.00 |
-|     20 |  69.68 | 39.00 | 115.00 |   28.00 |
-|     21 |  70.43 | 39.00 | 115.00 |   28.00 |
-|     22 |  70.71 | 39.00 | 118.00 |   28.00 |
-|     23 |  70.61 | 39.00 | 119.00 |   28.00 |
+|      0 |  69.55 | 40.00 | 117.00 |   29.00 |
+|      1 |  69.31 | 39.00 | 115.00 |   29.00 |
+|      2 |  70.03 | 39.00 | 115.00 |   29.00 |
+|      3 |  70.34 | 39.00 | 118.00 |   29.00 |
+|      4 |  70.24 | 39.00 | 119.00 |   29.00 |
+|      5 |  70.38 | 40.00 | 117.00 |   29.00 |
+|      6 |  70.90 | 41.00 | 115.00 |   29.00 |
+|      7 |  71.03 | 42.00 | 115.00 |   29.00 |
+|      8 |  69.48 | 43.00 | 115.00 |   29.00 |
+|      9 |  70.38 | 43.00 | 114.00 |   29.00 |
+|     10 |  70.03 | 43.00 | 112.00 |   29.00 |
+|     11 |  69.79 | 43.00 | 109.00 |   29.00 |
+|     12 |  69.41 | 43.00 | 111.00 |   29.00 |
+|     13 |  69.00 | 42.00 | 113.00 |   29.00 |
+|     14 |  68.62 | 41.00 | 116.00 |   29.00 |
+|     15 |  68.55 | 41.00 | 119.00 |   29.00 |
+|     16 |  68.45 | 40.00 | 120.00 |   29.00 |
+|     17 |  68.21 | 40.00 | 119.00 |   29.00 |
+|     18 |  67.93 | 40.00 | 118.00 |   29.00 |
+|     19 |  68.07 | 38.00 | 117.00 |   28.00 |
+|     20 |  67.93 | 38.00 | 116.00 |   28.00 |
+|     21 |  67.82 | 38.00 | 116.00 |   28.00 |
+|     22 |  68.50 | 40.00 | 116.00 |   30.00 |
+|     23 |  68.63 | 41.00 | 117.00 |   30.00 |
 
 ## Weekday AQI Pattern
 
 | weekday   |   mean |   min |    max |   count |
 |:----------|-------:|------:|-------:|--------:|
-| Monday    |  69.26 | 43.00 | 103.00 |   73.00 |
-| Tuesday   |  73.81 | 53.00 | 119.00 |   72.00 |
-| Wednesday |  70.29 | 53.00 | 117.00 |  102.00 |
-| Thursday  |  66.22 | 39.00 | 106.00 |  120.00 |
-| Friday    |  71.55 | 40.00 | 120.00 |  117.00 |
-| Saturday  |  71.84 | 43.00 | 115.00 |   96.00 |
-| Sunday    |  64.98 | 38.00 | 109.00 |   96.00 |
+| Monday    |  68.96 | 39.00 | 109.00 |   78.00 |
+| Tuesday   |  70.82 | 46.00 |  99.00 |   72.00 |
+| Wednesday |  72.42 | 53.00 | 119.00 |   92.00 |
+| Thursday  |  66.43 | 40.00 | 106.00 |  120.00 |
+| Friday    |  70.35 | 39.00 | 120.00 |  122.00 |
+| Saturday  |  71.28 | 43.00 | 117.00 |  115.00 |
+| Sunday    |  65.17 | 38.00 | 113.00 |   96.00 |
 
 ## Strongest Numeric Correlations With AQI
 
@@ -112,15 +113,15 @@ Historical OpenWeather air-pollution backfill does not include historical weathe
 | aqi_lag_1h      |           0.992 |
 | aqi_rolling_3h  |           0.985 |
 | pm2_5           |           0.982 |
-| aqi_rolling_24h |           0.887 |
-| pm10            |           0.860 |
-| o3              |           0.824 |
-| co              |           0.787 |
-| so2             |           0.708 |
-| no2             |           0.541 |
-| aqi_change_rate |           0.060 |
-| weekday         |          -0.049 |
-| nh3             |           0.021 |
+| aqi_rolling_24h |           0.888 |
+| pm10            |           0.859 |
+| o3              |           0.822 |
+| co              |           0.784 |
+| so2             |           0.704 |
+| no2             |           0.533 |
+| aqi_change_rate |           0.058 |
+| weekday         |          -0.045 |
+| hour            |          -0.030 |
 
 Weather columns with more than 50% missing values are excluded from this correlation table to avoid misleading sparse-column correlations.
 

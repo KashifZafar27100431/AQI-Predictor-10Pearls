@@ -1,15 +1,36 @@
 # Pearls AQI Predictor
 
-Serverless AQI forecasting system for Karachi. The project collects air pollution and weather data, engineers hourly features, stores reusable features in Hopsworks, trains multiple forecasting models, registers the best model, and serves 72-hour AQI predictions through Flask and Streamlit.
+Serverless AQI forecasting system for Karachi, Pakistan. The project collects OpenWeather pollutant and weather data, engineers hourly features, stores reusable data in Hopsworks Feature Store, trains multiple models, registers the selected model in Hopsworks Model Registry, and serves 72-hour AQI forecasts through Flask and Streamlit.
 
 ## Architecture
 
-- **Data source:** OpenWeather Air Pollution API for current, forecast, and historical pollutant data.
-- **Feature Store:** Hopsworks feature groups for raw air quality, raw weather, engineered features, and predictions.
-- **Backend cache:** MongoDB Atlas for latest dashboard records, prediction history, and hazardous alert events.
-- **Training:** scikit-learn baselines and regressors, plus an optional TensorFlow dense model experiment.
-- **Serving:** Flask JSON API and Streamlit dashboard.
-- **Automation:** GitHub Actions hourly feature pipeline and daily training pipeline.
+```mermaid
+flowchart LR
+    OW[OpenWeather APIs] --> GH1[GitHub Actions hourly feature pipeline]
+    GH1 --> FS[Hopsworks Feature Store]
+    GH1 --> MDB[MongoDB Atlas cache and alerts]
+    FS --> GH2[GitHub Actions daily training pipeline]
+    GH2 --> MR[Hopsworks Model Registry]
+    MR --> API[Cloud Run Flask API]
+    FS --> API
+    API --> ST[Streamlit Cloud dashboard]
+    API --> MDB
+```
+
+## Karachi Configuration
+
+The default city is Karachi and is configured centrally:
+
+```bash
+AQI_CITY=Karachi
+AQI_LAT=24.8607
+AQI_LON=67.0011
+AQI_TIMEZONE=Asia/Karachi
+AQI_FORECAST_HOURS=72
+AQI_MAX_FORECAST_HOURS=72
+```
+
+Internal timestamps are stored in UTC. API/dashboard display fields include Karachi-local timestamps such as `event_time_local`.
 
 ## Setup
 
@@ -22,46 +43,25 @@ pip install -e .
 cp .env.example .env
 ```
 
-For the daily TensorFlow experiment:
+Optional TensorFlow experiment:
 
 ```bash
 pip install -r requirements-ml.txt
 ```
 
-Fill `.env` with:
+Required environment variables:
 
 ```bash
 OPENWEATHER_API_KEY=...
 HOPSWORKS_API_KEY=...
 HOPSWORKS_PROJECT=...
 MONGODB_URI=...
+ALLOWED_ORIGINS=http://localhost:8501,https://your-dashboard-url.streamlit.app
 ```
 
-## Local Demo Flow
+Do not commit `.env`. It is intentionally ignored.
 
-Run the project without external credentials by using deterministic sample data:
-
-```bash
-python -m aqi_predictor.pipelines.backfill_pipeline --days 60 --sample
-python -m aqi_predictor.pipelines.training_pipeline
-python -m aqi_predictor.pipelines.predict_pipeline --horizon 72 --sample
-```
-
-Start the API:
-
-```bash
-python app/flask_api.py
-```
-
-Start the dashboard:
-
-```bash
-streamlit run app/streamlit_app.py
-```
-
-In the dashboard, **Sample mode** uses deterministic synthetic Karachi-like AQI and weather inputs. It is for demos and offline testing only. When Sample mode is off, `OPENWEATHER_API_KEY` must be configured or the app/API will fail explicitly instead of silently showing fake live predictions.
-
-## Production Pipeline Commands
+## Pipelines
 
 Hourly feature ingestion:
 
@@ -75,11 +75,15 @@ Historical backfill:
 python -m aqi_predictor.pipelines.backfill_pipeline --days 90
 ```
 
-Daily training:
+Backfill pulls historical air-pollution data from OpenWeather. Historical weather is reconstructed from the `karachi_weather_raw` feature group when cached hourly weather exists. If historical weather coverage is sparse because the OpenWeather plan does not provide historical weather, the training pipeline excludes high-missingness weather columns instead of silently training on mostly empty features.
+
+Daily training and model registration:
 
 ```bash
 python -m aqi_predictor.pipelines.training_pipeline --no-sample-if-empty
 ```
+
+Training reads `karachi_aqi_features`, uses a time-aware split, evaluates baselines, Ridge, Random Forest, HistGradientBoosting, and a TensorFlow dense experiment when TensorFlow is installed. The lowest-RMSE candidate is selected. If TensorFlow wins, the registry metadata marks the Keras model and scaler as the serving artifacts; otherwise the selected Scikit-learn artifact is served.
 
 Batch prediction:
 
@@ -87,25 +91,79 @@ Batch prediction:
 python -m aqi_predictor.pipelines.predict_pipeline --horizon 72
 ```
 
-Generate the EDA report:
+## Model Serving
+
+Flask and Streamlit use a registry-first loader:
+
+1. Try to download the latest approved Hopsworks model version, or latest available version.
+2. Validate `metadata.json`, model type, feature schema, and estimator feature count.
+3. Load only trusted internal `model.joblib` files, or registered TensorFlow `model.keras` plus scaler artifacts, from controlled model directories.
+4. Fall back to local `models/latest` only when `AQI_ALLOW_LOCAL_MODEL_FALLBACK=true`.
+
+For production serving, use:
 
 ```bash
-PYTHONPATH=src python scripts/generate_eda_report.py
+AQI_ALLOW_LOCAL_MODEL_FALLBACK=false
+AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY=true
 ```
 
-Repair old feature rows if the AQI scoring logic changes:
+The `/model-info` route and dashboard show model source, registry version, training timestamp, metrics, feature count, and latest feature timestamp. The dashboard also separates the latest observed Karachi AQI from the next-hour forecast.
+
+## Run Locally
+
+Offline demo with deterministic sample data:
 
 ```bash
-PYTHONPATH=src python scripts/repair_feature_scores.py
+python -m aqi_predictor.pipelines.backfill_pipeline --days 60 --sample
+python -m aqi_predictor.pipelines.training_pipeline
+python -m aqi_predictor.pipelines.predict_pipeline --horizon 72 --sample
 ```
+
+Start the Flask API:
+
+```bash
+python app/flask_api.py
+```
+
+Start the Streamlit dashboard:
+
+```bash
+streamlit run app/streamlit_app.py
+```
+
+Sample mode is for offline testing only. Live mode requires `OPENWEATHER_API_KEY`.
 
 ## API
 
 - `GET /health`
 - `GET /latest`
 - `GET /predict?horizon=72`
-- `GET /alerts`
+- `GET /alerts?limit=20`
 - `GET /model-info`
+
+Validation:
+
+- `horizon` must be an integer and is clamped to `1..72`.
+- `limit` must be an integer and is clamped to `1..500`.
+- API errors returned to clients are generic; detailed exceptions are logged server-side.
+- CORS is controlled by `ALLOWED_ORIGINS`; wildcard CORS is not used.
+
+## Automation
+
+GitHub Actions:
+
+- `.github/workflows/hourly-feature-pipeline.yml`: hourly feature ingestion.
+- `.github/workflows/daily-training-pipeline.yml`: daily training with TensorFlow dependencies and required Hopsworks registration.
+- `.github/workflows/ci.yml`: pytest on push and pull request.
+- `.github/workflows/deploy-cloud-run.yml`: manual Cloud Run deployment for the Flask API.
+
+Dashboard deployment target: Streamlit Community Cloud.
+
+API deployment target: Cloud Run using the included `Dockerfile`.
+
+The `.streamlit/config.toml` file provides Streamlit Cloud defaults for theme, headless mode, CORS, XSRF protection, and disabled usage telemetry.
+
+See [docs/deployment.md](docs/deployment.md) for serverless deployment steps and required secrets.
 
 ## Feature Groups
 
@@ -114,31 +172,35 @@ PYTHONPATH=src python scripts/repair_feature_scores.py
 - `karachi_aqi_features`
 - `karachi_aqi_predictions`
 
+## EDA and Reports
+
+```bash
+PYTHONPATH=src python scripts/generate_eda_report.py
+```
+
+Reports:
+
+- `reports/eda_report.md`
+- `reports/model_metrics.json`
+- `reports/project_report.md`
+- `notebooks/karachi_aqi_eda.ipynb`
+
 ## Tests
 
 ```bash
-python -m pytest
+pytest
 ```
 
-If pytest is not installed in the current environment:
+The tests cover feature engineering, AQI boundaries, Karachi timezone conversion, model loading fallback/schema validation, TensorFlow candidate selection, API validation/CORS, OpenWeather retry behavior, backfill dedupe/continuity, and end-to-end sample forecasting.
+
+Lint:
 
 ```bash
-PYTHONPATH=src python -m unittest
+ruff check src app tests scripts
 ```
 
-## Notes
+## Known Limitations
 
-- OpenWeather forecast air pollution data includes hourly forecast data. The displayed AQI score is derived from pollutant concentrations with U.S. EPA-style breakpoints, while `ow_aqi` is retained as OpenWeather's coarse 1-5 pollution level.
-- Historical OpenWeather air-pollution backfill does not include historical weather values. The feature schema keeps weather columns, live/forecast rows use OpenWeather weather APIs, and model training fills historical weather gaps with training-set medians.
-- `reports/eda_report.md` is generated from the Hopsworks feature group when credentials are configured and falls back to local cached features for offline development.
-- `reports/model_metrics.json` includes baselines, Ridge, Random Forest, HistGradientBoosting, and a TensorFlow dense experiment. Ridge is selected only when it has the lowest validation RMSE.
-- MongoDB is intentionally used as supporting backend storage, not as a replacement for Hopsworks.
-- Hopsworks registration is optional at runtime and activates when `HOPSWORKS_API_KEY` and `HOPSWORKS_PROJECT` are set.
-- Before publishing or submitting, rotate any API key that was ever pasted into `.env.example` or a terminal log. Keep `.env` local only.
-
-References:
-
-- OpenWeather Air Pollution API: https://openweathermap.org/api/air-pollution
-- Hopsworks feature group API: https://docs.hopsworks.ai/latest/python-api/hsfs/feature_group/
-- Hopsworks Python model registry: https://docs.hopsworks.ai/latest/user_guides/mlops/registry/frameworks/python/
-- GitHub Actions scheduled workflows: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onschedule
+- AQI score is derived from OpenWeather pollutant concentrations using EPA-style breakpoints. It is not an independent government station AQI reading.
+- OpenWeather historical air-pollution data is supported; historical weather availability depends on plan/API access. Sparse historical weather is handled by excluding high-missingness weather features from training.
+- TensorFlow is eligible for selection and serving when installed, but current production metrics still favor Ridge Regression.

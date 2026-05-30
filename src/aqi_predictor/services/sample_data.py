@@ -78,14 +78,14 @@ def generate_sample_history(
     start = end - timedelta(hours=hours - 1)
     timestamps = pd.date_range(start=start, periods=hours, freq="h", tz="UTC")
     raw = _sample_raw_frame(settings, timestamps)
-    return build_feature_frame(raw, None)
+    return build_feature_frame(raw, None, timezone_name=settings.timezone)
 
 
 def generate_sample_forecast(settings: Settings, hours: int = 72) -> pd.DataFrame:
     history = generate_sample_history(settings, hours=24 * 14)
     start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     timestamps = pd.date_range(start=start, periods=hours, freq="h", tz="UTC")
-    forecast = build_feature_frame(_sample_raw_frame(settings, timestamps), None)
+    forecast = build_feature_frame(_sample_raw_frame(settings, timestamps), None, timezone_name=settings.timezone)
     forecast["forecast_horizon"] = np.arange(1, hours + 1)
     forecast["aqi_lag_1h"] = float(history["aqi_score"].iloc[-1])
     forecast["aqi_rolling_3h"] = float(history["aqi_score"].tail(3).mean())

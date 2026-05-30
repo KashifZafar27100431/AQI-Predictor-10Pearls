@@ -1,39 +1,42 @@
 {
+  "artifacts": {
+    "sklearn_model": "model.joblib"
+  },
   "candidate_metrics": {
     "baseline_moving_average": {
-      "mae": 5.082107843137255,
-      "r2": -0.07153509278783554,
-      "rmse": 6.985320669884176
+      "mae": 3.7940647482014387,
+      "r2": -0.9914854678026126,
+      "rmse": 5.607297394711806
     },
     "baseline_persistence": {
-      "mae": 0.8308823529411765,
-      "r2": 0.9362189168138904,
-      "rmse": 1.7042334830374277
+      "mae": 0.7050359712230215,
+      "r2": 0.856918063742042,
+      "rmse": 1.502994612683424
     },
     "baseline_train_mean": {
-      "mae": 15.484422657952075,
-      "r2": -5.265307476642069,
-      "rmse": 16.89096037180638
+      "mae": 12.381294964028784,
+      "r2": -9.709617036342548,
+      "rmse": 13.003252331319555
     },
     "hist_gradient_boosting": {
-      "mae": 0.8437148787953449,
-      "r2": 0.97105823802858,
-      "rmse": 1.1480098967906769
+      "mae": 1.0756938209261615,
+      "r2": 0.8940771993300848,
+      "rmse": 1.2931822866788751
     },
     "random_forest": {
-      "mae": 0.5446085901027039,
-      "r2": 0.9861126172201845,
-      "rmse": 0.7952310913680568
+      "mae": 0.5609750485325956,
+      "r2": 0.9714814525045369,
+      "rmse": 0.6710095801776491
     },
     "ridge": {
-      "mae": 0.2934716109853057,
-      "r2": 0.9974372494897186,
-      "rmse": 0.3416145129274635
+      "mae": 0.31745583894063767,
+      "r2": 0.9906120147991859,
+      "rmse": 0.38499156796978234
     },
     "tensorflow_dense": {
-      "mae": 8.244780147776885,
-      "r2": -0.8985757371946408,
-      "rmse": 9.298162065925007
+      "mae": 11.898771080181753,
+      "r2": -10.055755849660056,
+      "rmse": 13.211716297988438
     }
   },
   "feature_columns": [
@@ -45,13 +48,6 @@
     "pm2_5",
     "pm10",
     "nh3",
-    "temp",
-    "feels_like",
-    "pressure",
-    "humidity",
-    "wind_speed",
-    "wind_deg",
-    "clouds",
     "hour",
     "day",
     "month",
@@ -63,24 +59,103 @@
     "aqi_change_rate",
     "forecast_horizon"
   ],
+  "feature_schema": {
+    "all_feature_columns": [
+      "co",
+      "no",
+      "no2",
+      "o3",
+      "so2",
+      "pm2_5",
+      "pm10",
+      "nh3",
+      "temp",
+      "feels_like",
+      "pressure",
+      "humidity",
+      "wind_speed",
+      "wind_deg",
+      "clouds",
+      "hour",
+      "day",
+      "month",
+      "weekday",
+      "is_weekend",
+      "aqi_lag_1h",
+      "aqi_rolling_3h",
+      "aqi_rolling_24h",
+      "aqi_change_rate",
+      "forecast_horizon"
+    ],
+    "excluded_feature_columns": [
+      "temp",
+      "feels_like",
+      "pressure",
+      "humidity",
+      "wind_speed",
+      "wind_deg",
+      "clouds"
+    ],
+    "feature_columns": [
+      "co",
+      "no",
+      "no2",
+      "o3",
+      "so2",
+      "pm2_5",
+      "pm10",
+      "nh3",
+      "hour",
+      "day",
+      "month",
+      "weekday",
+      "is_weekend",
+      "aqi_lag_1h",
+      "aqi_rolling_3h",
+      "aqi_rolling_24h",
+      "aqi_change_rate",
+      "forecast_horizon"
+    ],
+    "weather_missing_fraction": {
+      "clouds": 0.9913669064748202,
+      "feels_like": 0.9913669064748202,
+      "humidity": 0.9913669064748202,
+      "pressure": 0.9913669064748202,
+      "temp": 0.9913669064748202,
+      "wind_deg": 0.9913669064748202,
+      "wind_speed": 0.9913669064748202
+    },
+    "weather_missing_threshold": 0.5
+  },
   "metrics": {
-    "mae": 0.2934716109853057,
-    "r2": 0.9974372494897186,
-    "rmse": 0.3416145129274635
+    "mae": 0.31745583894063767,
+    "r2": 0.9906120147991859,
+    "rmse": 0.38499156796978234
   },
   "model_name": "ridge",
   "model_type": "sklearn",
+  "registry": {
+    "model_name": "karachi_aqi_predictor",
+    "registered": true,
+    "source": "hopsworks_model_registry",
+    "version": 4
+  },
   "target": "aqi_score",
   "tensorflow_experiment": {
-    "metrics": {
-      "mae": 8.244780147776885,
-      "r2": -0.8985757371946408,
-      "rmse": 9.298162065925007
+    "artifacts": {
+      "keras_model": "tensorflow_experiment/model.keras",
+      "scaler": "tensorflow_experiment/scaler.joblib"
     },
+    "metrics": {
+      "mae": 11.898771080181753,
+      "r2": -10.055755849660056,
+      "rmse": 13.211716297988438
+    },
+    "model_type": "tensorflow_keras",
     "name": "tensorflow_dense",
     "path": "models/latest/tensorflow_experiment"
   },
-  "test_rows": 136,
-  "trained_at": "2026-05-30T12:05:54Z",
-  "training_rows": 676
+  "test_rows": 139,
+  "trained_at": "2026-05-30T13:41:02Z",
+  "training_rows": 695
 }
