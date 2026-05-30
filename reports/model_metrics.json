@@ -1,0 +1,86 @@
+{
+  "candidate_metrics": {
+    "baseline_moving_average": {
+      "mae": 5.082107843137255,
+      "r2": -0.07153509278783554,
+      "rmse": 6.985320669884176
+    },
+    "baseline_persistence": {
+      "mae": 0.8308823529411765,
+      "r2": 0.9362189168138904,
+      "rmse": 1.7042334830374277
+    },
+    "baseline_train_mean": {
+      "mae": 15.484422657952075,
+      "r2": -5.265307476642069,
+      "rmse": 16.89096037180638
+    },
+    "hist_gradient_boosting": {
+      "mae": 0.8437148787953449,
+      "r2": 0.97105823802858,
+      "rmse": 1.1480098967906769
+    },
+    "random_forest": {
+      "mae": 0.5446085901027039,
+      "r2": 0.9861126172201845,
+      "rmse": 0.7952310913680568
+    },
+    "ridge": {
+      "mae": 0.2934716109853057,
+      "r2": 0.9974372494897186,
+      "rmse": 0.3416145129274635
+    },
+    "tensorflow_dense": {
+      "mae": 8.244780147776885,
+      "r2": -0.8985757371946408,
+      "rmse": 9.298162065925007
+    }
+  },
+  "feature_columns": [
+    "co",
+    "no",
+    "no2",
+    "o3",
+    "so2",
+    "pm2_5",
+    "pm10",
+    "nh3",
+    "temp",
+    "feels_like",
+    "pressure",
+    "humidity",
+    "wind_speed",
+    "wind_deg",
+    "clouds",
+    "hour",
+    "day",
+    "month",
+    "weekday",
+    "is_weekend",
+    "aqi_lag_1h",
+    "aqi_rolling_3h",
+    "aqi_rolling_24h",
+    "aqi_change_rate",
+    "forecast_horizon"
+  ],
+  "metrics": {
+    "mae": 0.2934716109853057,
+    "r2": 0.9974372494897186,
+    "rmse": 0.3416145129274635
+  },
+  "model_name": "ridge",
+  "model_type": "sklearn",
+  "target": "aqi_score",
+  "tensorflow_experiment": {
+    "metrics": {
+      "mae": 8.244780147776885,
+      "r2": -0.8985757371946408,
+      "rmse": 9.298162065925007
+    },
+    "name": "tensorflow_dense",
+    "path": "models/latest/tensorflow_experiment"
+  },
+  "test_rows": 136,
+  "trained_at": "2026-05-30T12:05:54Z",
+  "training_rows": 676
+}
