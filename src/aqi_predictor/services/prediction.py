@@ -71,7 +71,12 @@ class PredictionService:
         frame["forecast_horizon"] = np.arange(1, len(frame) + 1)
         return frame
 
-    def predict(self, horizon: Optional[int] = None, sample: bool = False) -> Dict[str, Any]:
+    def predict(
+        self,
+        horizon: Optional[int] = None,
+        sample: bool = False,
+        store_predictions: bool = True,
+    ) -> Dict[str, Any]:
         forecast_hours = self._clamp_horizon(horizon or self.settings.forecast_hours)
         model, metadata = self._load_model_bundle()
         feature_columns = metadata.get("feature_columns")
@@ -116,21 +121,23 @@ class PredictionService:
         prediction_frame["created_at"] = datetime.now(timezone.utc)
 
         records = json_records(prediction_frame, timezone_name=self.settings.timezone)
-        prediction_store = (
-            "hopsworks"
-            if self.settings.hopsworks_api_key and self.settings.hopsworks_project
-            else "local"
-        )
-        try:
-            self.feature_store.insert_feature_group(
-                PREDICTIONS_FEATURE_GROUP,
-                prediction_frame,
-                primary_key=["city", "event_time"],
+        prediction_store = "not_persisted"
+        if store_predictions:
+            prediction_store = (
+                "hopsworks"
+                if self.settings.hopsworks_api_key and self.settings.hopsworks_project
+                else "local"
             )
-        except Exception:
-            prediction_store = "local"
-            logger.warning("Prediction feature-store insert failed; continuing with local response only.")
-        self.mongo_store.insert_predictions(records)
+            try:
+                self.feature_store.insert_feature_group(
+                    PREDICTIONS_FEATURE_GROUP,
+                    prediction_frame,
+                    primary_key=["city", "event_time"],
+                )
+            except Exception:
+                prediction_store = "local"
+                logger.warning("Prediction feature-store insert failed; continuing with local response only.")
+            self.mongo_store.insert_predictions(records)
 
         generated_at = datetime.now(timezone.utc)
         generated_at_local = (

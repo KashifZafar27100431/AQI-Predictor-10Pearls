@@ -110,6 +110,73 @@ def test_registry_download_is_copied_to_controlled_cache(tmp_path, monkeypatch):
     assert downloaded["metadata_path"].is_relative_to((settings.model_dir / "registry_cache").resolve())
 
 
+def test_registry_download_reuses_existing_complete_cache(tmp_path, monkeypatch):
+    settings = Settings(
+        model_dir=tmp_path / "serving",
+        hopsworks_api_key="configured",
+        hopsworks_project="project",
+    )
+    cached_dir = settings.model_dir / "registry_cache" / "version_9"
+    _write_model_artifact(cached_dir)
+
+    class FakeModel:
+        version = 9
+
+        def download(self, *args):
+            raise AssertionError("Complete model cache should be reused without downloading.")
+
+    class FakeRegistry:
+        def get_models(self, name=None):
+            return [FakeModel()]
+
+    class FakeProject:
+        def get_model_registry(self):
+            return FakeRegistry()
+
+    monkeypatch.setattr(ModelRegistryClient, "_hopsworks_project", lambda self: FakeProject())
+
+    downloaded = ModelRegistryClient(settings).download_latest_hopsworks_model()
+
+    assert downloaded["version"] == 9
+    assert downloaded["artifact_dir"] == cached_dir.resolve()
+    assert downloaded["metadata_path"] == (cached_dir / "metadata.json").resolve()
+
+
+def test_registry_download_refreshes_incomplete_existing_cache(tmp_path, monkeypatch):
+    settings = Settings(
+        model_dir=tmp_path / "serving",
+        hopsworks_api_key="configured",
+        hopsworks_project="project",
+    )
+    stale_dir = settings.model_dir / "registry_cache" / "version_11"
+    (stale_dir / "tensorflow_experiment").mkdir(parents=True)
+
+    class FakeModel:
+        version = 11
+
+        def download(self, local_path):
+            target = Path(local_path)
+            assert not (target / "tensorflow_experiment").exists()
+            _write_model_artifact(target)
+            return str(target)
+
+    class FakeRegistry:
+        def get_models(self, name=None):
+            return [FakeModel()]
+
+    class FakeProject:
+        def get_model_registry(self):
+            return FakeRegistry()
+
+    monkeypatch.setattr(ModelRegistryClient, "_hopsworks_project", lambda self: FakeProject())
+
+    downloaded = ModelRegistryClient(settings).download_latest_hopsworks_model()
+
+    assert downloaded["version"] == 11
+    assert downloaded["metadata_path"] == (stale_dir / "metadata.json").resolve()
+    assert downloaded["model_path"] == (stale_dir / "model.joblib").resolve()
+
+
 def test_registry_prefers_approved_model_over_newer_unapproved(tmp_path, monkeypatch):
     class FakeModel:
         def __init__(self, version, status):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 import os
 from pathlib import Path
@@ -219,6 +220,8 @@ def main() -> None:
     )
 
     settings = get_settings()
+    if settings.openweather_api_key and settings.use_sample_data:
+        settings = replace(settings, use_sample_data=False)
     service = PredictionService(settings)
 
     st.title("Pearls AQI Predictor")
@@ -232,11 +235,15 @@ def main() -> None:
             value=min(settings.forecast_hours, settings.max_forecast_hours),
             step=12,
         )
-        sample = st.toggle("Sample mode", value=settings.use_sample_data or not service.openweather.configured)
+        if service.openweather.configured:
+            sample = False
+            st.caption("Live OpenWeather mode")
+        else:
+            sample = st.toggle("Sample mode", value=True)
         st.button("Refresh forecast", type="primary", use_container_width=True)
 
     try:
-        payload = service.predict(horizon=horizon, sample=sample)
+        payload = service.predict(horizon=horizon, sample=sample, store_predictions=False)
     except ModelLoadError as exc:
         _show_model_load_diagnostics(exc, settings)
         st.stop()

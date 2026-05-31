@@ -26,9 +26,35 @@ class FakeFeatureStore:
         return None
 
 
+class CountingFeatureStore(FakeFeatureStore):
+    def __init__(self):
+        self.insert_count = 0
+
+    def insert_feature_group(self, name: str, frame: pd.DataFrame, **kwargs: Any) -> None:
+        self.insert_count += 1
+
+
 class FakeMongoStore:
+    def __init__(self):
+        self.insert_count = 0
+
     def insert_predictions(self, records: list[dict]) -> None:
-        return None
+        self.insert_count += 1
+
+
+def _patch_constant_model(monkeypatch) -> None:
+    def fake_load_model_bundle(settings: Settings):
+        return ConstantModel(), {
+            "model_name": "constant",
+            "trained_at": "2026-05-31T00:00:00Z",
+            "metrics": {"rmse": 1.0, "mae": 1.0, "r2": 0.0},
+            "serving_source": "hopsworks_model_registry",
+            "registry_version": 5,
+            "feature_columns": FEATURE_COLUMNS,
+            "feature_count": len(FEATURE_COLUMNS),
+        }
+
+    monkeypatch.setattr(prediction_module, "load_model_bundle", fake_load_model_bundle)
 
 
 def test_model_info_reuses_prediction_model_bundle(monkeypatch):
@@ -57,3 +83,17 @@ def test_model_info_reuses_prediction_model_bundle(monkeypatch):
     assert payload["model"]["name"] == "constant"
     assert model_info["model"]["model_name"] == "constant"
     assert calls == 1
+
+
+def test_prediction_can_skip_persistence_for_dashboard_reruns(monkeypatch):
+    _patch_constant_model(monkeypatch)
+    settings = Settings(use_sample_data=True, openweather_api_key=None, mongodb_uri=None)
+    feature_store = CountingFeatureStore()
+    mongo_store = FakeMongoStore()
+    service = PredictionService(settings, feature_store=feature_store, mongo_store=mongo_store)
+
+    payload = service.predict(horizon=3, sample=True, store_predictions=False)
+
+    assert payload["prediction_store"] == "not_persisted"
+    assert feature_store.insert_count == 0
+    assert mongo_store.insert_count == 0

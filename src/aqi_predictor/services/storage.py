@@ -247,6 +247,14 @@ class ModelRegistryClient:
         model = self._select_hopsworks_model(registry)
         version = _safe_model_version(model)
         target_dir = self.registry_cache_dir / f"version_{version or 'latest'}"
+
+        cached = _load_cached_model_download(target_dir, version)
+        if cached is not None:
+            return cached
+
+        if target_dir.exists():
+            logger.warning("Refreshing incomplete Hopsworks model cache at %s.", target_dir)
+            shutil.rmtree(target_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         try:
             downloaded = model.download(str(target_dir))
@@ -254,21 +262,15 @@ class ModelRegistryClient:
             downloaded = model.download()
         downloaded_dir = Path(downloaded) if downloaded else target_dir
         try:
-            artifact_dir = _safe_resolve_under(self.registry_cache_dir, downloaded_dir)
+            downloaded_resolved = _safe_resolve_under(self.registry_cache_dir, downloaded_dir)
         except ValueError:
             _copy_expected_model_artifacts(downloaded_dir, target_dir)
-            artifact_dir = target_dir.resolve()
-        metadata_path = _find_required_file(artifact_dir, MODEL_METADATA_FILE)
-        metadata = _read_metadata(metadata_path)
-        model_path = _expected_model_path(artifact_dir, metadata)
-        return {
-            "source": "hopsworks_model_registry",
-            "model_name": MODEL_NAME,
-            "version": version,
-            "artifact_dir": artifact_dir,
-            "model_path": model_path,
-            "metadata_path": metadata_path,
-        }
+        else:
+            try:
+                downloaded_resolved.relative_to(target_dir.resolve())
+            except ValueError:
+                _copy_expected_model_artifacts(downloaded_resolved, target_dir)
+        return _model_download_payload_from_dir(target_dir, version)
 
     def _select_hopsworks_model(self, registry: Any) -> Any:
         if self.settings.hopsworks_model_version is not None:
@@ -316,6 +318,31 @@ def _safe_resolve_under(base: Path, candidate: Path) -> Path:
     candidate_resolved = candidate.resolve()
     candidate_resolved.relative_to(base_resolved)
     return candidate_resolved
+
+
+def _load_cached_model_download(root: Path, version: int) -> Optional[Dict[str, Any]]:
+    if not root.exists():
+        return None
+    try:
+        return _model_download_payload_from_dir(root, version)
+    except Exception:
+        return None
+
+
+def _model_download_payload_from_dir(root: Path, version: int) -> Dict[str, Any]:
+    artifact_root = root.resolve()
+    metadata_path = _find_required_file(artifact_root, MODEL_METADATA_FILE)
+    artifact_dir = metadata_path.parent
+    metadata = _read_metadata(metadata_path)
+    model_path = _expected_model_path(artifact_dir, metadata)
+    return {
+        "source": "hopsworks_model_registry",
+        "model_name": MODEL_NAME,
+        "version": version,
+        "artifact_dir": artifact_dir,
+        "model_path": model_path,
+        "metadata_path": metadata_path,
+    }
 
 
 def _find_required_file(root: Path, filename: str) -> Path:
