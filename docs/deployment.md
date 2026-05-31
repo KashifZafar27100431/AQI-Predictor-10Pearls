@@ -111,7 +111,7 @@ ALLOWED_ORIGINS=https://karachi-aqi-predictor-10pearls.streamlit.app
 
 Keep all secret values in the Vercel project environment settings. Do not commit `.env` files or real API keys.
 
-The Vercel runtime uses the root Python dependency metadata. `requirements.txt` and `pyproject.toml` include the Flask serving dependencies plus Hopsworks, SHAP, Streamlit, and other shared project packages. TensorFlow is intentionally kept out of `requirements.txt`; it is only in `requirements-ml.txt` for training and Cloud Run serving. If the latest registered Hopsworks model is a TensorFlow artifact, or if Vercel build/runtime limits are hit by the shared ML dependencies, use Cloud Run for the Flask API because the included Dockerfile installs `requirements-ml.txt` and is sized for ML serving.
+The Vercel runtime uses `pyproject.toml`, so the base project dependencies are intentionally kept to Flask API serving dependencies only. Streamlit, Plotly, SHAP, the heavier Hopsworks `[python]` extra, and TensorFlow stay out of the Vercel base install and are installed through `requirements.txt`, `requirements-ml.txt`, or optional extras for local, pipeline, Streamlit, and Cloud Run use. If the latest registered Hopsworks model is a TensorFlow artifact, or if Vercel still hits ML dependency limits, use Cloud Run for the Flask API because the included Dockerfile installs `requirements-ml.txt` and is sized for ML serving.
 
 ## Streamlit Cloud
 

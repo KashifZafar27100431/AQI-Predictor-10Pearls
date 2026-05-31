@@ -1,0 +1,12 @@
+.github/
+.pytest_cache/
+.ruff_cache/
+.streamlit/
+.venv/
+data/
+docs/
+models/
+notebooks/
+reports/
+tests/
+requirements-ml.txt
