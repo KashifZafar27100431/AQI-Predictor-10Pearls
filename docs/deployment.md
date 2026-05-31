@@ -66,6 +66,7 @@ AQI_TIMEZONE=Asia/Karachi
 AQI_FORECAST_HOURS=72
 AQI_MAX_FORECAST_HOURS=72
 AQI_ALLOW_LOCAL_MODEL_FALLBACK=false
+LOCAL_MODEL_FALLBACK_ENABLED=false
 AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY=true
 OPENWEATHER_API_KEY=<secret>
 HOPSWORKS_API_KEY=<secret>
@@ -73,6 +74,44 @@ HOPSWORKS_PROJECT=<secret>
 MONGODB_URI=<secret>
 ALLOWED_ORIGINS=https://your-dashboard-url.streamlit.app
 ```
+
+`LOCAL_MODEL_FALLBACK_ENABLED` is accepted as a Vercel-friendly alias for `AQI_ALLOW_LOCAL_MODEL_FALLBACK`. If both are set, `AQI_ALLOW_LOCAL_MODEL_FALLBACK` takes precedence.
+
+## Vercel Flask API
+
+Vercel can serve the Flask API through `api/index.py`, which imports the WSGI object named `app` from `app/flask_api.py`. The `vercel.json` rewrite sends every route to that entrypoint, so the same Flask implementation serves:
+
+```text
+/health
+/latest
+/predict?horizon=72
+/alerts
+/model-info
+```
+
+Required Vercel environment variables:
+
+```text
+AQI_CITY=Karachi
+AQI_LAT=24.8607
+AQI_LON=67.0011
+AQI_TIMEZONE=Asia/Karachi
+AQI_FORECAST_HOURS=72
+AQI_MAX_FORECAST_HOURS=72
+AQI_ALLOW_LOCAL_MODEL_FALLBACK=false
+LOCAL_MODEL_FALLBACK_ENABLED=false
+AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY=true
+OPENWEATHER_API_KEY=<secret>
+HOPSWORKS_API_KEY=<secret>
+HOPSWORKS_PROJECT=<secret>
+MONGODB_URI=<secret>
+MONGODB_DATABASE=pearls_aqi
+ALLOWED_ORIGINS=https://karachi-aqi-predictor-10pearls.streamlit.app
+```
+
+Keep all secret values in the Vercel project environment settings. Do not commit `.env` files or real API keys.
+
+The Vercel runtime uses the root Python dependency metadata. `requirements.txt` and `pyproject.toml` include the Flask serving dependencies plus Hopsworks, SHAP, Streamlit, and other shared project packages. TensorFlow is intentionally kept out of `requirements.txt`; it is only in `requirements-ml.txt` for training and Cloud Run serving. If the latest registered Hopsworks model is a TensorFlow artifact, or if Vercel build/runtime limits are hit by the shared ML dependencies, use Cloud Run for the Flask API because the included Dockerfile installs `requirements-ml.txt` and is sized for ML serving.
 
 ## Streamlit Cloud
 

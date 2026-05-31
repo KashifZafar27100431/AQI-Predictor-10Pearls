@@ -40,7 +40,10 @@ def _client(monkeypatch):
     monkeypatch.setenv("AQI_FORECAST_HOURS", "72")
     monkeypatch.setenv("AQI_MAX_FORECAST_HOURS", "72")
     monkeypatch.setenv("AQI_MAX_API_LIMIT", "500")
-    monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:8501")
+    monkeypatch.setenv(
+        "ALLOWED_ORIGINS",
+        "https://karachi-aqi-predictor-10pearls.streamlit.app,http://localhost:8501",
+    )
     app = flask_api.create_app()
     return app.test_client()
 
@@ -66,10 +69,16 @@ def test_predict_horizon_is_clamped_and_invalid_params_are_rejected(monkeypatch)
 def test_cors_uses_configured_origins(monkeypatch):
     client = _client(monkeypatch)
 
-    allowed = client.get("/health", headers={"Origin": "http://localhost:8501"})
+    allowed = client.get(
+        "/health",
+        headers={"Origin": "https://karachi-aqi-predictor-10pearls.streamlit.app"},
+    )
     denied = client.get("/health", headers={"Origin": "https://evil.example"})
 
-    assert allowed.headers.get("Access-Control-Allow-Origin") == "http://localhost:8501"
+    assert (
+        allowed.headers.get("Access-Control-Allow-Origin")
+        == "https://karachi-aqi-predictor-10pearls.streamlit.app"
+    )
     assert denied.headers.get("Access-Control-Allow-Origin") is None
 
 
@@ -83,3 +92,19 @@ def test_wildcard_cors_origin_is_ignored(monkeypatch):
 
     assert response.status_code == 200
     assert response.headers.get("Access-Control-Allow-Origin") is None
+
+
+def test_module_and_vercel_entrypoints_expose_flask_app():
+    import api.index as vercel_entrypoint
+
+    assert flask_api.app.name == flask_api.__name__
+    assert vercel_entrypoint.app is flask_api.app
+
+
+def test_local_model_fallback_alias_disables_fallback(monkeypatch):
+    from aqi_predictor.config.settings import Settings
+
+    monkeypatch.delenv("AQI_ALLOW_LOCAL_MODEL_FALLBACK", raising=False)
+    monkeypatch.setenv("LOCAL_MODEL_FALLBACK_ENABLED", "false")
+
+    assert Settings().allow_local_model_fallback is False

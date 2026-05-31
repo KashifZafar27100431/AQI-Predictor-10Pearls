@@ -13,6 +13,12 @@ def _bool_env(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _local_model_fallback_enabled() -> bool:
+    if os.getenv("AQI_ALLOW_LOCAL_MODEL_FALLBACK") is not None:
+        return _bool_env("AQI_ALLOW_LOCAL_MODEL_FALLBACK", True)
+    return _bool_env("LOCAL_MODEL_FALLBACK_ENABLED", True)
+
+
 def _int_env(name: str, default: int) -> int:
     raw = os.getenv(name)
     if raw is None or raw == "":
@@ -72,7 +78,7 @@ class Settings:
         default_factory=lambda: Path(os.getenv("AQI_MODEL_DIR", "models/latest"))
     )
     allow_local_model_fallback: bool = field(
-        default_factory=lambda: _bool_env("AQI_ALLOW_LOCAL_MODEL_FALLBACK", True)
+        default_factory=_local_model_fallback_enabled
     )
     require_hopsworks_model_registry: bool = field(
         default_factory=lambda: _bool_env("AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY", False)
