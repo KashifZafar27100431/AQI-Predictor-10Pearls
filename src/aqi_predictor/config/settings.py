@@ -19,6 +19,18 @@ def _local_model_fallback_enabled() -> bool:
     return _bool_env("LOCAL_MODEL_FALLBACK_ENABLED", True)
 
 
+def _runtime_path(env_name: str, local_default: str, serverless_default: str) -> Path:
+    configured = os.getenv(env_name)
+    if configured:
+        path = Path(configured)
+        if os.getenv("VERCEL") and not path.is_absolute():
+            return Path("/tmp") / "aqi_predictor" / path
+        return path
+    if os.getenv("VERCEL"):
+        return Path("/tmp") / "aqi_predictor" / serverless_default
+    return Path(local_default)
+
+
 def _int_env(name: str, default: int) -> int:
     raw = os.getenv(name)
     if raw is None or raw == "":
@@ -72,10 +84,10 @@ class Settings:
     )
 
     local_data_dir: Path = field(
-        default_factory=lambda: Path(os.getenv("AQI_LOCAL_DATA_DIR", "data/processed"))
+        default_factory=lambda: _runtime_path("AQI_LOCAL_DATA_DIR", "data/processed", "data")
     )
     model_dir: Path = field(
-        default_factory=lambda: Path(os.getenv("AQI_MODEL_DIR", "models/latest"))
+        default_factory=lambda: _runtime_path("AQI_MODEL_DIR", "models/latest", "models")
     )
     allow_local_model_fallback: bool = field(
         default_factory=_local_model_fallback_enabled

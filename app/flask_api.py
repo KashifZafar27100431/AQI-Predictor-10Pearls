@@ -102,7 +102,7 @@ def create_app():
         try:
             horizon = _bounded_int("horizon", settings.forecast_hours, 1, settings.max_forecast_hours)
             sample = _bool_arg("sample", default=False)
-            return jsonify(service.predict(horizon=horizon, sample=sample))
+            return jsonify(service.predict(horizon=horizon, sample=sample, store_predictions=False))
         except ApiInputError as exc:
             return _safe_error(str(exc), 400)
         except Exception:

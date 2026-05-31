@@ -114,6 +114,8 @@ Keep all secret values in the Vercel project environment settings. Do not commit
 
 The Vercel runtime uses `pyproject.toml`, so the base project dependencies are intentionally kept to Flask API serving dependencies only. Streamlit, Plotly, SHAP, the heavier Hopsworks `[python]` extra, and TensorFlow stay out of the Vercel base install and are installed through `requirements.txt`, `requirements-ml.txt`, or optional extras for local, pipeline, Streamlit, and Cloud Run use. If the latest registered Hopsworks model is a TensorFlow artifact, or if Vercel still hits ML dependency limits, use Cloud Run for the Flask API because the included Dockerfile installs `requirements-ml.txt` and is sized for ML serving.
 
+When `VERCEL=1` is present, runtime model and data caches default to `/tmp/aqi_predictor/...` because Vercel functions should not rely on writing inside the deployed repository. If `AQI_MODEL_DIR` or `AQI_LOCAL_DATA_DIR` is set to a relative path on Vercel, the app relocates it under `/tmp/aqi_predictor/`. Absolute overrides should also point to `/tmp`.
+
 ## Streamlit Cloud
 
 Deploy `app/streamlit_app.py` as the Streamlit entrypoint.
