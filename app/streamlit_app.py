@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 import sys
 
@@ -14,7 +16,29 @@ import streamlit as st
 
 from aqi_predictor.config.settings import get_settings
 from aqi_predictor.services.aqi_scale import color_from_score, label_from_score
+from aqi_predictor.services.modeling import ModelLoadError
 from aqi_predictor.services.prediction import PredictionService
+from aqi_predictor.services.storage import MODEL_ARTIFACT_FILE, MODEL_METADATA_FILE
+
+
+logger = logging.getLogger(__name__)
+
+SECRET_ENV_KEYS = (
+    "OPENWEATHER_API_KEY",
+    "HOPSWORKS_API_KEY",
+    "HOPSWORKS_PROJECT",
+    "MONGODB_URI",
+    "MONGODB_DATABASE",
+    "AQI_CITY",
+    "AQI_LAT",
+    "AQI_LON",
+    "AQI_TIMEZONE",
+    "AQI_FORECAST_HOURS",
+    "AQI_MAX_FORECAST_HOURS",
+    "AQI_ALLOW_LOCAL_MODEL_FALLBACK",
+    "AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY",
+    "AQI_USE_SAMPLE_DATA",
+)
 
 
 def _load_dotenv() -> None:
@@ -24,6 +48,64 @@ def _load_dotenv() -> None:
         load_dotenv(ROOT / ".env")
     except Exception:
         return
+
+
+def _set_env_from_secret(key: str, value: object) -> None:
+    if os.getenv(key) or value is None or isinstance(value, (dict, list, tuple, set)):
+        return
+    os.environ[key] = str(value)
+
+
+def _load_streamlit_secrets() -> None:
+    for key in SECRET_ENV_KEYS:
+        try:
+            value = st.secrets.get(key)
+        except Exception:
+            continue
+        _set_env_from_secret(key, value)
+
+    for section_name in ("env", "environment"):
+        try:
+            section = st.secrets.get(section_name, {})
+        except Exception:
+            continue
+        if not hasattr(section, "items"):
+            continue
+        for key, value in section.items():
+            if key in SECRET_ENV_KEYS:
+                _set_env_from_secret(key, value)
+
+
+def _exception_chain(exc: BaseException) -> list[str]:
+    chain: list[str] = []
+    current = exc.__cause__ or exc.__context__
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen and len(chain) < 5:
+        seen.add(id(current))
+        chain.append(f"{type(current).__name__}: {current}")
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def _show_model_load_diagnostics(exc: ModelLoadError, settings) -> None:
+    logger.exception("AQI model loading failed.")
+    st.error(str(exc))
+    st.info("The app needs either a downloadable Hopsworks model registry version or local model artifacts.")
+
+    model_dir = settings.model_dir
+    diagnostics = {
+        "hopsworks_api_key_configured": bool(settings.hopsworks_api_key),
+        "hopsworks_project_configured": bool(settings.hopsworks_project),
+        "allow_local_model_fallback": settings.allow_local_model_fallback,
+        "model_dir": str(model_dir),
+        "local_metadata_exists": (model_dir / MODEL_METADATA_FILE).exists(),
+        "local_model_exists": (model_dir / MODEL_ARTIFACT_FILE).exists(),
+    }
+    with st.expander("Deployment diagnostics"):
+        st.json(diagnostics)
+        causes = _exception_chain(exc)
+        if causes:
+            st.code("\n".join(causes))
 
 
 def _forecast_chart(frame: pd.DataFrame) -> go.Figure:
@@ -78,6 +160,7 @@ def _latest_observed_record(service: PredictionService) -> dict:
 def main() -> None:
     _load_dotenv()
     st.set_page_config(page_title="Pearls AQI Predictor", layout="wide")
+    _load_streamlit_secrets()
     st.markdown(
         """
         <style>
@@ -107,7 +190,11 @@ def main() -> None:
 
     try:
         payload = service.predict(horizon=horizon, sample=sample)
+    except ModelLoadError as exc:
+        _show_model_load_diagnostics(exc, settings)
+        st.stop()
     except Exception as exc:
+        logger.exception("AQI prediction failed.")
         st.error(str(exc))
         st.stop()
 

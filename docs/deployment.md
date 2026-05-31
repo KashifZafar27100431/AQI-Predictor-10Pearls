@@ -79,20 +79,22 @@ ALLOWED_ORIGINS=https://your-dashboard-url.streamlit.app
 Deploy `app/streamlit_app.py` as the Streamlit entrypoint.
 
 The repository includes `.streamlit/config.toml` for Streamlit Cloud defaults. Keep secrets in Streamlit's secrets manager or environment settings, not in the config file.
+GitHub Actions repository secrets are not available to Streamlit Community Cloud apps. Add the runtime secrets separately in the Streamlit app's settings.
+Set the app's Python version to 3.11 in Streamlit's Advanced settings; Community Cloud does not use `runtime.txt` for this project.
 
-Configure Streamlit secrets/environment:
+Configure Streamlit secrets/environment as root-level TOML keys:
 
-```text
-OPENWEATHER_API_KEY
-HOPSWORKS_API_KEY
-HOPSWORKS_PROJECT
-MONGODB_URI
-MONGODB_DATABASE
-AQI_CITY=Karachi
-AQI_LAT=24.8607
-AQI_LON=67.0011
-AQI_TIMEZONE=Asia/Karachi
-AQI_ALLOW_LOCAL_MODEL_FALLBACK=false
+```toml
+OPENWEATHER_API_KEY = "..."
+HOPSWORKS_API_KEY = "..."
+HOPSWORKS_PROJECT = "..."
+MONGODB_URI = "..."
+MONGODB_DATABASE = "pearls_aqi"
+AQI_CITY = "Karachi"
+AQI_LAT = "24.8607"
+AQI_LON = "67.0011"
+AQI_TIMEZONE = "Asia/Karachi"
+AQI_ALLOW_LOCAL_MODEL_FALLBACK = "false"
 ```
 
 The dashboard can call shared service code directly. If deployed separately from the API, keep both deployments pointed at the same Hopsworks project and MongoDB Atlas database.
