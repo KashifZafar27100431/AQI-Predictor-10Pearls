@@ -77,6 +77,18 @@ def create_app():
     def health():
         return jsonify({"status": "ok", "city": settings.city, "timezone": settings.timezone})
 
+    @app.get("/")
+    def index():
+        return jsonify(
+            {
+                "status": "ok",
+                "service": "Karachi AQI Predictor API",
+                "city": settings.city,
+                "timezone": settings.timezone,
+                "routes": ["/health", "/latest", "/predict?horizon=72", "/alerts", "/model-info"],
+            }
+        )
+
     @app.get("/latest")
     def latest():
         try:

@@ -51,6 +51,7 @@ def _client(monkeypatch):
 def test_health_latest_alerts_and_model_info(monkeypatch):
     client = _client(monkeypatch)
 
+    assert client.get("/").json["service"] == "Karachi AQI Predictor API"
     assert client.get("/health").status_code == 200
     assert client.get("/latest").status_code == 200
     assert client.get("/alerts?limit=999").json["limit"] == 500

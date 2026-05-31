@@ -82,6 +82,7 @@ ALLOWED_ORIGINS=https://your-dashboard-url.streamlit.app
 Vercel can serve the Flask API through `api/index.py`, which imports the WSGI object named `app` from `app/flask_api.py`. The `vercel.json` rewrite sends every route to that entrypoint, so the same Flask implementation serves:
 
 ```text
+/
 /health
 /latest
 /predict?horizon=72
