@@ -157,6 +157,53 @@ def _latest_observed_record(service: PredictionService) -> dict:
         return {}
 
 
+def _model_value(model: dict, primary: str, fallback: str = "", default: object = "unknown") -> object:
+    value = model.get(primary)
+    if value is None and fallback:
+        value = model.get(fallback)
+    return default if value is None else value
+
+
+def _render_model_section(service: PredictionService, payload: dict) -> None:
+    st.subheader("Model")
+    model_summary = payload.get("model", {})
+    model_info = {
+        "model": {
+            "metrics": model_summary.get("metrics", {}),
+            "model_name": model_summary.get("name"),
+            "serving_source": model_summary.get("serving_source"),
+            "registry_version": model_summary.get("registry_version"),
+            "trained_at": model_summary.get("trained_at"),
+        },
+        "data_freshness": {},
+        "feature_importance": [],
+    }
+    try:
+        model_info = service.model_info_payload()
+    except Exception:
+        logger.exception("AQI model explanation failed.")
+        st.info("Feature importance is temporarily unavailable; prediction-time model metadata is shown below.")
+
+    model = model_info.get("model", {})
+    metrics = model.get("metrics", {})
+    metric_cols = st.columns(5)
+    metric_cols[0].metric("RMSE", f"{metrics.get('rmse', 0):.2f}")
+    metric_cols[1].metric("MAE", f"{metrics.get('mae', 0):.2f}")
+    metric_cols[2].metric("R²", f"{metrics.get('r2', 0):.2f}")
+    metric_cols[3].metric("Name", str(_model_value(model, "model_name", "name")))
+    metric_cols[4].metric("Source", str(_model_value(model, "serving_source")))
+    freshness = model_info.get("data_freshness", {})
+    st.caption(
+        f"Model trained: {_model_value(model, 'trained_at')} | "
+        f"Registry version: {_model_value(model, 'registry_version', default='local')} | "
+        f"Latest feature: {freshness.get('latest_feature_event_time_local') or 'unknown'}"
+    )
+
+    importance = pd.DataFrame(model_info.get("feature_importance", []))
+    if not importance.empty:
+        st.bar_chart(importance.set_index("feature")["importance"])
+
+
 def main() -> None:
     _load_dotenv()
     st.set_page_config(page_title="Pearls AQI Predictor", layout="wide")
@@ -253,28 +300,7 @@ def main() -> None:
                 hide_index=True,
             )
 
-    try:
-        model_info = service.model_info_payload()
-        metrics = model_info["model"].get("metrics", {})
-        st.subheader("Model")
-        metric_cols = st.columns(5)
-        metric_cols[0].metric("RMSE", f"{metrics.get('rmse', 0):.2f}")
-        metric_cols[1].metric("MAE", f"{metrics.get('mae', 0):.2f}")
-        metric_cols[2].metric("R²", f"{metrics.get('r2', 0):.2f}")
-        metric_cols[3].metric("Name", model_info["model"].get("model_name", "unknown"))
-        metric_cols[4].metric("Source", model_info["model"].get("serving_source", "unknown"))
-        freshness = model_info.get("data_freshness", {})
-        st.caption(
-            f"Model trained: {model_info['model'].get('trained_at', 'unknown')} | "
-            f"Registry version: {model_info['model'].get('registry_version', 'local')} | "
-            f"Latest feature: {freshness.get('latest_feature_event_time_local') or 'unknown'}"
-        )
-
-        importance = pd.DataFrame(model_info.get("feature_importance", []))
-        if not importance.empty:
-            st.bar_chart(importance.set_index("feature")["importance"])
-    except Exception:
-        st.info("Model explanation is temporarily unavailable.")
+    _render_model_section(service, payload)
 
 
 if __name__ == "__main__":

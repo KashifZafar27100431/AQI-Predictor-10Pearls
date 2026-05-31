@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -42,9 +42,15 @@ class PredictionService:
         self.feature_store = feature_store or FeatureStoreClient(settings)
         self.mongo_store = mongo_store or MongoStore(settings)
         self.openweather = OpenWeatherClient(settings)
+        self._model_bundle: Optional[Tuple[Any, Dict[str, Any]]] = None
 
     def latest_features(self, limit: int = 24) -> pd.DataFrame:
         return self.feature_store.read_feature_group(FEATURES_FEATURE_GROUP, limit=limit)
+
+    def _load_model_bundle(self) -> Tuple[Any, Dict[str, Any]]:
+        if self._model_bundle is None:
+            self._model_bundle = load_model_bundle(self.settings)
+        return self._model_bundle
 
     def _forecast_frame(self, horizon: int, sample: bool = False) -> pd.DataFrame:
         if sample or self.settings.use_sample_data:
@@ -67,7 +73,7 @@ class PredictionService:
 
     def predict(self, horizon: Optional[int] = None, sample: bool = False) -> Dict[str, Any]:
         forecast_hours = self._clamp_horizon(horizon or self.settings.forecast_hours)
-        model, metadata = load_model_bundle(self.settings)
+        model, metadata = self._load_model_bundle()
         feature_columns = metadata.get("feature_columns")
         data_source = "sample" if sample or self.settings.use_sample_data else "openweather"
         forecast = self._forecast_frame(forecast_hours, sample=sample)
@@ -170,7 +176,7 @@ class PredictionService:
         return {"city": self.settings.city, "alerts": alerts}
 
     def model_info_payload(self) -> Dict[str, Any]:
-        model, metadata = load_model_bundle(self.settings)
+        model, metadata = self._load_model_bundle()
         latest = self.latest_features(limit=200)
         feature_columns = metadata.get("feature_columns")
         importance = feature_importance(model, latest, feature_columns=feature_columns) if not latest.empty else []
