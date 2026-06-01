@@ -24,7 +24,9 @@ def _env_any(names: Iterable[str], default: Optional[str] = None) -> Optional[st
 def _local_model_fallback_enabled() -> bool:
     if os.getenv("AQI_ALLOW_LOCAL_MODEL_FALLBACK") is not None:
         return _bool_env("AQI_ALLOW_LOCAL_MODEL_FALLBACK", True)
-    return _bool_env("LOCAL_MODEL_FALLBACK_ENABLED", True)
+    if os.getenv("LOCAL_MODEL_FALLBACK_ENABLED") is not None:
+        return _bool_env("LOCAL_MODEL_FALLBACK_ENABLED", True)
+    return not bool(os.getenv("VERCEL"))
 
 
 def _runtime_path(env_name: str, local_default: str, serverless_default: str) -> Path:
@@ -103,7 +105,7 @@ class Settings:
         default_factory=_local_model_fallback_enabled
     )
     require_hopsworks_model_registry: bool = field(
-        default_factory=lambda: _bool_env("AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY", False)
+        default_factory=lambda: _bool_env("AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY", bool(os.getenv("VERCEL")))
     )
     hopsworks_model_version: Optional[int] = field(
         default_factory=lambda: (

@@ -178,12 +178,17 @@ def test_vercel_defaults_use_tmp_runtime_dirs(monkeypatch):
 
     monkeypatch.delenv("AQI_LOCAL_DATA_DIR", raising=False)
     monkeypatch.delenv("AQI_MODEL_DIR", raising=False)
+    monkeypatch.delenv("AQI_ALLOW_LOCAL_MODEL_FALLBACK", raising=False)
+    monkeypatch.delenv("LOCAL_MODEL_FALLBACK_ENABLED", raising=False)
+    monkeypatch.delenv("AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY", raising=False)
     monkeypatch.setenv("VERCEL", "1")
 
     settings = Settings()
 
     assert settings.local_data_dir == Path("/tmp/aqi_predictor/data")
     assert settings.model_dir == Path("/tmp/aqi_predictor/models")
+    assert settings.allow_local_model_fallback is False
+    assert settings.require_hopsworks_model_registry is True
 
 
 def test_vercel_relocates_relative_runtime_dirs_to_tmp(monkeypatch):
