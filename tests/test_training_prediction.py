@@ -36,6 +36,9 @@ class TrainingPredictionTests(unittest.TestCase):
             self.assertEqual(len(payload["predictions"]), 72)
             self.assertIn("predicted_aqi_score", payload["predictions"][0])
             self.assertIn("event_time_local", payload["predictions"][0])
+            self.assertIn("primary_pollutant", payload["predictions"][0])
+            self.assertIn("alert_level", payload["predictions"][0])
+            self.assertEqual(payload["predictions"][0]["event_timezone"], "Asia/Karachi")
             event_times = [row["event_time"] for row in payload["predictions"]]
             self.assertEqual(event_times, sorted(event_times))
             self.assertGreater(len({round(row["predicted_aqi_score"], 3) for row in payload["predictions"]}), 1)

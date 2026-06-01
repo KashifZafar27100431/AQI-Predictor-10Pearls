@@ -186,7 +186,12 @@ class PredictionService:
         model, metadata = self._load_model_bundle()
         latest = self.latest_features(limit=200)
         feature_columns = metadata.get("feature_columns")
-        importance = feature_importance(model, latest, feature_columns=feature_columns) if not latest.empty else []
+        explainability = metadata.get("explainability", {})
+        importance = []
+        if isinstance(explainability, dict):
+            importance = explainability.get("top_features", []) or []
+        if not importance and not latest.empty:
+            importance = feature_importance(model, latest, feature_columns=feature_columns)
         latest_event_time = None
         latest_event_time_local = None
         if not latest.empty and "event_time" in latest.columns:
@@ -207,6 +212,7 @@ class PredictionService:
                 "timezone": self.settings.timezone,
             },
             "feature_importance": importance,
+            "explainability": explainability if isinstance(explainability, dict) else {},
         }
 
     def _clamp_horizon(self, horizon: int) -> int:

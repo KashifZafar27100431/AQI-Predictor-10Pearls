@@ -1,0 +1,87 @@
+{
+  "computed_at": "2026-06-01T08:42:59Z",
+  "method": "shap",
+  "model_name": "ridge",
+  "model_type": "sklearn",
+  "registry_version": 8,
+  "sample_rows": 120,
+  "schema_version": 1,
+  "status": "ok",
+  "test_rows": 143,
+  "top_features": [
+    {
+      "feature": "aqi_lag_1h",
+      "importance": 3.2058378027686967
+    },
+    {
+      "feature": "aqi_rolling_3h",
+      "importance": 0.5844412076267708
+    },
+    {
+      "feature": "aqi_change_rate",
+      "importance": 0.4857524848647701
+    },
+    {
+      "feature": "pm2_5",
+      "importance": 0.38842813900652445
+    },
+    {
+      "feature": "pm10",
+      "importance": 0.26274187210690036
+    },
+    {
+      "feature": "aqi_rolling_24h",
+      "importance": 0.039804510117998466
+    },
+    {
+      "feature": "hour",
+      "importance": 0.03786408351459475
+    },
+    {
+      "feature": "no",
+      "importance": 0.03731365847936608
+    },
+    {
+      "feature": "no2",
+      "importance": 0.026274249469124912
+    },
+    {
+      "feature": "is_weekend",
+      "importance": 0.025356867224941092
+    },
+    {
+      "feature": "weekday",
+      "importance": 0.019145652376100095
+    },
+    {
+      "feature": "so2",
+      "importance": 0.019130611251191212
+    },
+    {
+      "feature": "day",
+      "importance": 0.008446545987647838
+    },
+    {
+      "feature": "co",
+      "importance": 0.003976897744647232
+    },
+    {
+      "feature": "o3",
+      "importance": 0.003240206856294456
+    },
+    {
+      "feature": "nh3",
+      "importance": 0.0
+    },
+    {
+      "feature": "month",
+      "importance": 0.0
+    },
+    {
+      "feature": "forecast_horizon",
+      "importance": 0.0
+    }
+  ],
+  "trained_at": "2026-06-01T08:41:40Z",
+  "training_rows": 712
+}

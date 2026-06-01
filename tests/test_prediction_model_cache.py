@@ -85,6 +85,38 @@ def test_model_info_reuses_prediction_model_bundle(monkeypatch):
     assert calls == 1
 
 
+def test_model_info_prefers_precomputed_explainability(monkeypatch):
+    def fake_load_model_bundle(settings: Settings):
+        return ConstantModel(), {
+            "model_name": "constant",
+            "trained_at": "2026-05-31T00:00:00Z",
+            "metrics": {"rmse": 1.0, "mae": 1.0, "r2": 0.0},
+            "serving_source": "hopsworks_model_registry",
+            "registry_version": 5,
+            "feature_columns": FEATURE_COLUMNS,
+            "feature_count": len(FEATURE_COLUMNS),
+            "explainability": {
+                "method": "shap",
+                "status": "ok",
+                "computed_at": "2026-05-31T00:00:00Z",
+                "top_features": [{"feature": "pm2_5", "importance": 1.25}],
+            },
+        }
+
+    def fail_live_importance(*args, **kwargs):
+        raise AssertionError("Live explainability should not run when precomputed SHAP exists.")
+
+    monkeypatch.setattr(prediction_module, "load_model_bundle", fake_load_model_bundle)
+    monkeypatch.setattr(prediction_module, "feature_importance", fail_live_importance)
+    settings = Settings(use_sample_data=True, openweather_api_key=None, mongodb_uri=None)
+    service = PredictionService(settings, feature_store=FakeFeatureStore(), mongo_store=FakeMongoStore())
+
+    model_info = service.model_info_payload()
+
+    assert model_info["explainability"]["method"] == "shap"
+    assert model_info["feature_importance"] == [{"feature": "pm2_5", "importance": 1.25}]
+
+
 def test_prediction_can_skip_persistence_for_dashboard_reruns(monkeypatch):
     _patch_constant_model(monkeypatch)
     settings = Settings(use_sample_data=True, openweather_api_key=None, mongodb_uri=None)

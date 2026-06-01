@@ -6,10 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "pearls-aqi-predictor"
 version = "0.1.0"
 description = "Serverless AQI forecasting pipeline for Karachi using OpenWeather, Hopsworks, MongoDB, Flask, and Streamlit."
-requires-python = ">=3.9"
+requires-python = ">=3.11,<3.13"
 dependencies = [
   "pandas>=2.2",
   "numpy>=1.26",
+  "pyarrow>=15,<25",
   "requests>=2.31",
   "python-dotenv>=1.0",
   "scikit-learn>=1.4",

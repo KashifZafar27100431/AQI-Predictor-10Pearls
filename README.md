@@ -11,10 +11,11 @@ flowchart LR
     GH1 --> MDB[MongoDB Atlas cache and alerts]
     FS --> GH2[GitHub Actions daily training pipeline]
     GH2 --> MR[Hopsworks Model Registry]
-    MR --> API[Cloud Run Flask API]
+    MR --> API[Vercel Flask API]
     FS --> API
     API --> ST[Streamlit Cloud dashboard]
     API --> MDB
+    MR --> CR[Cloud Run fallback API]
 ```
 
 ## Karachi Configuration
@@ -56,8 +57,15 @@ OPENWEATHER_API_KEY=...
 HOPSWORKS_API_KEY=...
 HOPSWORKS_PROJECT=...
 MONGODB_URI=...
+MONGODB_DATABASE=pearls_aqi
+AQI_CITY=Karachi
+AQI_LAT=24.8607
+AQI_LON=67.0011
+AQI_TIMEZONE=Asia/Karachi
 ALLOWED_ORIGINS=http://localhost:8501,https://your-dashboard-url.streamlit.app
 ```
+
+`CITY_NAME`, `CITY_LAT`, `CITY_LON`, and `TIMEZONE` are accepted as aliases for deployment platforms that already use those names, but the documented production variables are the `AQI_*` names above.
 
 Do not commit `.env`. It is intentionally ignored.
 
@@ -83,7 +91,7 @@ Daily training and model registration:
 python -m aqi_predictor.pipelines.training_pipeline --no-sample-if-empty
 ```
 
-Training reads `karachi_aqi_features`, uses a time-aware split, evaluates baselines, Ridge, Random Forest, HistGradientBoosting, and a TensorFlow dense experiment when TensorFlow is installed. The lowest-RMSE candidate is selected. If TensorFlow wins, the registry metadata marks the Keras model and scaler as the serving artifacts; otherwise the selected Scikit-learn artifact is served.
+Training reads `karachi_aqi_features`, uses a time-aware split, evaluates baselines, Ridge, Random Forest, HistGradientBoosting, and a TensorFlow dense experiment when TensorFlow is installed. The lowest-RMSE candidate is selected. If TensorFlow wins, the registry metadata marks the Keras model and scaler as the serving artifacts; otherwise the selected Scikit-learn artifact is served. For the selected Scikit-learn model, training also writes precomputed SHAP explainability artifacts under `reports/` and model metadata so Streamlit can display explanations without recomputing SHAP on every page load.
 
 Batch prediction:
 
@@ -136,6 +144,7 @@ Sample mode is for offline testing only. Live mode requires `OPENWEATHER_API_KEY
 ## API
 
 - `GET /health`
+- `GET /diagnostics`
 - `GET /latest`
 - `GET /predict?horizon=72`
 - `GET /alerts?limit=20`
@@ -147,19 +156,20 @@ Validation:
 - `limit` must be an integer and is clamped to `1..500`.
 - API errors returned to clients are generic; detailed exceptions are logged server-side.
 - CORS is controlled by `ALLOWED_ORIGINS`; wildcard CORS is not used.
+- `/diagnostics` reports dependency and env-var presence only. It never returns secret values.
 
 ## Automation
 
 GitHub Actions:
 
-- `.github/workflows/hourly-feature-pipeline.yml`: hourly feature ingestion.
+- `.github/workflows/hourly-feature-pipeline.yml`: hourly feature ingestion. GitHub scheduled workflows are best-effort and may drift, so this is configured hourly but not guaranteed to execute at the exact minute every hour.
 - `.github/workflows/daily-training-pipeline.yml`: daily training with TensorFlow dependencies and required Hopsworks registration.
 - `.github/workflows/ci.yml`: pytest on push and pull request.
 - `.github/workflows/deploy-cloud-run.yml`: manual Cloud Run deployment for the Flask API.
 
-Dashboard deployment target: Streamlit Community Cloud.
+Dashboard deployment target: Streamlit Community Cloud. Set `API_BASE_URL=https://aqi-predictor-10-pearls.vercel.app` if the dashboard should call the Flask API; omit it to use the shared service code directly from Streamlit.
 
-API deployment target: Cloud Run using the included `Dockerfile`.
+Primary API deployment target: Vercel using `api/index.py`, `vercel.json`, and the lightweight `pyproject.toml` runtime dependencies. Cloud Run using the included `Dockerfile` remains the fallback if Vercel hits dependency size, timeout, memory, or TensorFlow-serving limits.
 
 The `.streamlit/config.toml` file provides Streamlit Cloud defaults for theme, headless mode, CORS, XSRF protection, and disabled usage telemetry.
 
@@ -183,6 +193,8 @@ Reports:
 - `reports/eda_report.md`
 - `reports/model_metrics.json`
 - `reports/project_report.md`
+- `reports/shap_summary.json`
+- `reports/feature_importance.json`
 - `notebooks/karachi_aqi_eda.ipynb`
 
 ## Tests

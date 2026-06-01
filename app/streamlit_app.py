@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 import logging
 import os
 from pathlib import Path
 import sys
+from typing import Any, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -13,6 +15,7 @@ if str(SRC) not in sys.path:
 
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 
 from aqi_predictor.config.settings import get_settings
@@ -39,6 +42,7 @@ SECRET_ENV_KEYS = (
     "AQI_ALLOW_LOCAL_MODEL_FALLBACK",
     "AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY",
     "AQI_USE_SAMPLE_DATA",
+    "API_BASE_URL",
 )
 
 
@@ -77,21 +81,34 @@ def _load_streamlit_secrets() -> None:
                 _set_env_from_secret(key, value)
 
 
-def _exception_chain(exc: BaseException) -> list[str]:
-    chain: list[str] = []
-    current = exc.__cause__ or exc.__context__
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen and len(chain) < 5:
-        seen.add(id(current))
-        chain.append(f"{type(current).__name__}: {current}")
-        current = current.__cause__ or current.__context__
-    return chain
+@st.cache_data(ttl=300)
+def _api_get(base_url: str, path: str, params: Optional[dict[str, Any]] = None) -> dict:
+    response = requests.get(f"{base_url.rstrip('/')}{path}", params=params, timeout=90)
+    payload = response.json()
+    if response.status_code >= 400:
+        message = payload.get("message") if isinstance(payload, dict) else None
+        raise RuntimeError(message or "API request failed.")
+    return payload
+
+
+@st.cache_data(ttl=600)
+def _load_report_explainability() -> dict:
+    path = ROOT / "reports" / "shap_summary.json"
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        logger.exception("Failed to load precomputed explainability report.")
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _show_model_load_diagnostics(exc: ModelLoadError, settings) -> None:
     logger.exception("AQI model loading failed.")
-    st.error(str(exc))
-    st.info("The app needs either a downloadable Hopsworks model registry version or local model artifacts.")
+    st.error("The forecasting model is temporarily unavailable.")
+    st.info("The app is configured for Hopsworks Model Registry serving. Check deployment secrets and model registry logs.")
 
     model_dir = settings.model_dir
     diagnostics = {
@@ -104,9 +121,6 @@ def _show_model_load_diagnostics(exc: ModelLoadError, settings) -> None:
     }
     with st.expander("Deployment diagnostics"):
         st.json(diagnostics)
-        causes = _exception_chain(exc)
-        if causes:
-            st.code("\n".join(causes))
 
 
 def _forecast_chart(frame: pd.DataFrame) -> go.Figure:
@@ -151,11 +165,15 @@ def _daily_summary(frame: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
-def _latest_observed_record(service: PredictionService) -> dict:
+def _latest_observed_record(service: Optional[PredictionService] = None, api_base_url: Optional[str] = None) -> dict:
     try:
-        return service.latest_payload().get("latest") or {}
+        if api_base_url:
+            return _api_get(api_base_url, "/latest").get("latest") or {}
+        if service is not None:
+            return service.latest_payload().get("latest") or {}
     except Exception:
-        return {}
+        logger.exception("Latest AQI lookup failed.")
+    return {}
 
 
 def _model_value(model: dict, primary: str, fallback: str = "", default: object = "unknown") -> object:
@@ -165,7 +183,24 @@ def _model_value(model: dict, primary: str, fallback: str = "", default: object 
     return default if value is None else value
 
 
-def _render_model_section(service: PredictionService, payload: dict) -> None:
+def _apply_report_explainability_fallback(model_info: dict) -> dict:
+    explainability = model_info.get("explainability") or {}
+    if isinstance(explainability, dict) and explainability.get("top_features"):
+        return model_info
+    report = _load_report_explainability()
+    if not report.get("top_features"):
+        return model_info
+    updated = dict(model_info)
+    updated["explainability"] = report
+    updated["feature_importance"] = report.get("top_features", [])
+    return updated
+
+
+def _render_model_section(
+    payload: dict,
+    service: Optional[PredictionService] = None,
+    api_base_url: Optional[str] = None,
+) -> None:
     st.subheader("Model")
     model_summary = payload.get("model", {})
     model_info = {
@@ -178,12 +213,17 @@ def _render_model_section(service: PredictionService, payload: dict) -> None:
         },
         "data_freshness": {},
         "feature_importance": [],
+        "explainability": {},
     }
     try:
-        model_info = service.model_info_payload()
+        if api_base_url:
+            model_info = _api_get(api_base_url, "/model-info")
+        elif service is not None:
+            model_info = service.model_info_payload()
     except Exception:
         logger.exception("AQI model explanation failed.")
         st.info("Feature importance is temporarily unavailable; prediction-time model metadata is shown below.")
+    model_info = _apply_report_explainability_fallback(model_info)
 
     model = model_info.get("model", {})
     metrics = model.get("metrics", {})
@@ -202,6 +242,11 @@ def _render_model_section(service: PredictionService, payload: dict) -> None:
 
     importance = pd.DataFrame(model_info.get("feature_importance", []))
     if not importance.empty:
+        explainability = model_info.get("explainability", {})
+        method = explainability.get("method", "model_native_feature_importance")
+        status = explainability.get("status", "unknown")
+        computed_at = explainability.get("computed_at", "unknown")
+        st.caption(f"Explainability: {method} ({status}), precomputed at {computed_at}")
         st.bar_chart(importance.set_index("feature")["importance"])
 
 
@@ -222,7 +267,8 @@ def main() -> None:
     settings = get_settings()
     if settings.openweather_api_key and settings.use_sample_data:
         settings = replace(settings, use_sample_data=False)
-    service = PredictionService(settings)
+    api_base_url = os.getenv("API_BASE_URL", "").strip().rstrip("/") or None
+    service: Optional[PredictionService] = None if api_base_url else PredictionService(settings)
 
     st.title("Pearls AQI Predictor")
     st.caption(f"{settings.city} forecast")
@@ -235,21 +281,29 @@ def main() -> None:
             value=min(settings.forecast_hours, settings.max_forecast_hours),
             step=12,
         )
-        if service.openweather.configured:
+        if api_base_url:
+            sample = False
+            st.caption("API-backed live mode")
+        elif service and service.openweather.configured:
             sample = False
             st.caption("Live OpenWeather mode")
         else:
             sample = st.toggle("Sample mode", value=True)
-        st.button("Refresh forecast", type="primary", use_container_width=True)
+        st.button("Refresh forecast", type="primary", width="stretch")
 
     try:
-        payload = service.predict(horizon=horizon, sample=sample, store_predictions=False)
+        if api_base_url:
+            payload = _api_get(api_base_url, "/predict", params={"horizon": horizon})
+        elif service is not None:
+            payload = service.predict(horizon=horizon, sample=sample, store_predictions=False)
+        else:
+            raise RuntimeError("Prediction service is not configured.")
     except ModelLoadError as exc:
         _show_model_load_diagnostics(exc, settings)
         st.stop()
-    except Exception as exc:
+    except Exception:
         logger.exception("AQI prediction failed.")
-        st.error(str(exc))
+        st.error("AQI prediction is temporarily unavailable. Please retry after the deployment is healthy.")
         st.stop()
 
     predictions = pd.DataFrame(payload["predictions"])
@@ -263,7 +317,7 @@ def main() -> None:
         predictions["display_time"] = predictions["event_time"]
 
     next_hour = predictions.iloc[0]
-    current = _latest_observed_record(service)
+    current = _latest_observed_record(service=service, api_base_url=api_base_url)
     current_score = current.get("aqi_score")
     color_score = float(current_score) if current_score is not None else float(next_hour["predicted_aqi_score"])
     color = color_from_score(color_score)
@@ -282,7 +336,7 @@ def main() -> None:
         st.success("Live OpenWeather inputs")
     else:
         st.warning("Sample/offline inputs")
-    st.plotly_chart(_forecast_chart(predictions), use_container_width=True)
+    st.plotly_chart(_forecast_chart(predictions), width="stretch")
 
     summary = _daily_summary(predictions)
     day_cols = st.columns(min(3, len(summary)))
@@ -303,11 +357,11 @@ def main() -> None:
             st.error(f"{len(unhealthy)} unhealthy forecast hours.")
             st.dataframe(
                 unhealthy[["event_time_local", "predicted_aqi_score", "aqi_category", "primary_pollutant"]].head(8),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
-    _render_model_section(service, payload)
+    _render_model_section(payload, service=service, api_base_url=api_base_url)
 
 
 if __name__ == "__main__":

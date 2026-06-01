@@ -57,6 +57,7 @@ def test_health_latest_alerts_and_model_info(monkeypatch):
 
     assert client.get("/").json["service"] == "Karachi AQI Predictor API"
     assert client.get("/health").status_code == 200
+    assert client.get("/diagnostics").status_code == 200
     assert client.get("/latest").status_code == 200
     assert client.get("/alerts?limit=999").json["limit"] == 500
     assert client.get("/model-info").json["model"]["serving_source"] == "local_model_dir"
@@ -70,6 +71,44 @@ def test_predict_horizon_is_clamped_and_invalid_params_are_rejected(monkeypatch)
     assert client.get("/predict?horizon=72").json["store_predictions"] is False
     assert client.get("/predict?horizon=abc").status_code == 400
     assert client.get("/predict?sample=maybe").status_code == 400
+
+
+def test_diagnostics_are_safe_and_include_runtime_dependency_checks(monkeypatch):
+    monkeypatch.setattr(flask_api, "PredictionService", FakePredictionService)
+    monkeypatch.setenv("OPENWEATHER_API_KEY", "secret-openweather")
+    monkeypatch.setenv("HOPSWORKS_API_KEY", "secret-hopsworks")
+    monkeypatch.setenv("HOPSWORKS_PROJECT", "project-name")
+    monkeypatch.setenv("AQI_ALLOW_LOCAL_MODEL_FALLBACK", "false")
+    monkeypatch.setenv("AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY", "true")
+
+    response = flask_api.create_app().test_client().get("/diagnostics")
+    payload = response.json
+
+    assert response.status_code == 200
+    assert payload["env"]["OPENWEATHER_API_KEY"] is True
+    assert payload["env"]["HOPSWORKS_API_KEY"] is True
+    assert "pyarrow" in payload["packages"]
+    assert payload["configuration"]["local_model_fallback_enabled"] is False
+    serialized = response.get_data(as_text=True)
+    assert "secret-openweather" not in serialized
+    assert "secret-hopsworks" not in serialized
+
+
+def test_public_errors_hide_tracebacks_and_internal_messages(monkeypatch):
+    class FailingPredictionService(FakePredictionService):
+        def predict(self, horizon=None, sample=False, store_predictions=True):
+            raise RuntimeError("Traceback: /private/path secret-token")
+
+    monkeypatch.setattr(flask_api, "PredictionService", FailingPredictionService)
+    client = flask_api.create_app().test_client()
+
+    response = client.get("/predict?horizon=72")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 503
+    assert response.json["message"] == "Prediction service is temporarily unavailable."
+    assert "Traceback" not in body
+    assert "secret-token" not in body
 
 
 def test_cors_uses_configured_origins(monkeypatch):
@@ -114,6 +153,24 @@ def test_local_model_fallback_alias_disables_fallback(monkeypatch):
     monkeypatch.setenv("LOCAL_MODEL_FALLBACK_ENABLED", "false")
 
     assert Settings().allow_local_model_fallback is False
+
+
+def test_city_environment_aliases_are_supported(monkeypatch):
+    from aqi_predictor.config.settings import Settings
+
+    for key in ("AQI_CITY", "AQI_LAT", "AQI_LON", "AQI_TIMEZONE"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("CITY_NAME", "Karachi")
+    monkeypatch.setenv("CITY_LAT", "24.8607")
+    monkeypatch.setenv("CITY_LON", "67.0011")
+    monkeypatch.setenv("TIMEZONE", "Asia/Karachi")
+
+    settings = Settings()
+
+    assert settings.city == "Karachi"
+    assert settings.lat == 24.8607
+    assert settings.lon == 67.0011
+    assert settings.timezone == "Asia/Karachi"
 
 
 def test_vercel_defaults_use_tmp_runtime_dirs(monkeypatch):

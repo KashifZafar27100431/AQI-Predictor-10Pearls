@@ -4,40 +4,157 @@
   },
   "candidate_metrics": {
     "baseline_moving_average": {
-      "mae": 3.7940647482014387,
-      "r2": -0.9914854678026126,
-      "rmse": 5.607297394711806
+      "mae": 2.7179487179487176,
+      "r2": -0.03097320770663714,
+      "rmse": 3.9975255798382032
     },
     "baseline_persistence": {
-      "mae": 0.7050359712230215,
-      "r2": 0.856918063742042,
-      "rmse": 1.502994612683424
+      "mae": 0.6083916083916084,
+      "r2": 0.9445075434910178,
+      "rmse": 0.927437254017683
     },
     "baseline_train_mean": {
-      "mae": 12.381294964028784,
-      "r2": -9.709617036342548,
-      "rmse": 13.003252331319555
+      "mae": 11.824167045608169,
+      "r2": -9.019988618092077,
+      "rmse": 12.462385348632626
     },
     "hist_gradient_boosting": {
-      "mae": 1.0756938209261615,
-      "r2": 0.8940771993300848,
-      "rmse": 1.2931822866788751
+      "mae": 0.8866917934999176,
+      "r2": 0.9352785701805277,
+      "rmse": 1.0015937673248454
     },
     "random_forest": {
-      "mae": 0.5609750485325956,
-      "r2": 0.9714814525045369,
-      "rmse": 0.6710095801776491
+      "mae": 0.47707716727716326,
+      "r2": 0.9768047527873971,
+      "rmse": 0.5996075112428172
     },
     "ridge": {
-      "mae": 0.31745583894063767,
-      "r2": 0.9906120147991859,
-      "rmse": 0.38499156796978234
+      "mae": 0.18268742669590105,
+      "r2": 0.9971578019391951,
+      "rmse": 0.20989144197999568
     },
     "tensorflow_dense": {
-      "mae": 11.898771080181753,
-      "r2": -10.055755849660056,
-      "rmse": 13.211716297988438
+      "mae": 13.065878381262293,
+      "r2": -14.5134172311043,
+      "rmse": 15.506768318403221
     }
+  },
+  "explainability": {
+    "artifacts": {
+      "feature_importance": "explainability/feature_importance.json",
+      "shap_summary": "explainability/shap_summary.json"
+    },
+    "computed_at": "2026-06-01T08:42:59Z",
+    "feature_columns": [
+      "co",
+      "no",
+      "no2",
+      "o3",
+      "so2",
+      "pm2_5",
+      "pm10",
+      "nh3",
+      "hour",
+      "day",
+      "month",
+      "weekday",
+      "is_weekend",
+      "aqi_lag_1h",
+      "aqi_rolling_3h",
+      "aqi_rolling_24h",
+      "aqi_change_rate",
+      "forecast_horizon"
+    ],
+    "method": "shap",
+    "metrics": {
+      "mae": 0.18268742669590105,
+      "r2": 0.9971578019391951,
+      "rmse": 0.20989144197999568
+    },
+    "model_name": "ridge",
+    "model_type": "sklearn",
+    "registry_version": 8,
+    "sample_rows": 120,
+    "schema_version": 1,
+    "scope": "precomputed_training_holdout_sample",
+    "status": "ok",
+    "test_rows": 143,
+    "top_features": [
+      {
+        "feature": "aqi_lag_1h",
+        "importance": 3.2058378027686967
+      },
+      {
+        "feature": "aqi_rolling_3h",
+        "importance": 0.5844412076267708
+      },
+      {
+        "feature": "aqi_change_rate",
+        "importance": 0.4857524848647701
+      },
+      {
+        "feature": "pm2_5",
+        "importance": 0.38842813900652445
+      },
+      {
+        "feature": "pm10",
+        "importance": 0.26274187210690036
+      },
+      {
+        "feature": "aqi_rolling_24h",
+        "importance": 0.039804510117998466
+      },
+      {
+        "feature": "hour",
+        "importance": 0.03786408351459475
+      },
+      {
+        "feature": "no",
+        "importance": 0.03731365847936608
+      },
+      {
+        "feature": "no2",
+        "importance": 0.026274249469124912
+      },
+      {
+        "feature": "is_weekend",
+        "importance": 0.025356867224941092
+      },
+      {
+        "feature": "weekday",
+        "importance": 0.019145652376100095
+      },
+      {
+        "feature": "so2",
+        "importance": 0.019130611251191212
+      },
+      {
+        "feature": "day",
+        "importance": 0.008446545987647838
+      },
+      {
+        "feature": "co",
+        "importance": 0.003976897744647232
+      },
+      {
+        "feature": "o3",
+        "importance": 0.003240206856294456
+      },
+      {
+        "feature": "nh3",
+        "importance": 0.0
+      },
+      {
+        "feature": "month",
+        "importance": 0.0
+      },
+      {
+        "feature": "forecast_horizon",
+        "importance": 0.0
+      }
+    ],
+    "trained_at": "2026-06-01T08:41:40Z",
+    "training_rows": 712
   },
   "feature_columns": [
     "co",
@@ -59,6 +176,7 @@
     "aqi_change_rate",
     "forecast_horizon"
   ],
+  "feature_count": 18,
   "feature_schema": {
     "all_feature_columns": [
       "co",
@@ -117,29 +235,26 @@
       "forecast_horizon"
     ],
     "weather_missing_fraction": {
-      "clouds": 0.9913669064748202,
-      "feels_like": 0.9913669064748202,
-      "humidity": 0.9913669064748202,
-      "pressure": 0.9913669064748202,
-      "temp": 0.9913669064748202,
-      "wind_deg": 0.9913669064748202,
-      "wind_speed": 0.9913669064748202
+      "clouds": 0.9676966292134831,
+      "feels_like": 0.9676966292134831,
+      "humidity": 0.9676966292134831,
+      "pressure": 0.9676966292134831,
+      "temp": 0.9676966292134831,
+      "wind_deg": 0.9676966292134831,
+      "wind_speed": 0.9676966292134831
     },
     "weather_missing_threshold": 0.5
   },
+  "loaded_at": "2026-06-01T08:42:59Z",
   "metrics": {
-    "mae": 0.31745583894063767,
-    "r2": 0.9906120147991859,
-    "rmse": 0.38499156796978234
+    "mae": 0.18268742669590105,
+    "r2": 0.9971578019391951,
+    "rmse": 0.20989144197999568
   },
   "model_name": "ridge",
   "model_type": "sklearn",
-  "registry": {
-    "model_name": "karachi_aqi_predictor",
-    "registered": true,
-    "source": "hopsworks_model_registry",
-    "version": 4
-  },
+  "registry_version": 8,
+  "serving_source": "hopsworks_model_registry",
   "target": "aqi_score",
   "tensorflow_experiment": {
     "artifacts": {
@@ -147,15 +262,15 @@
       "scaler": "tensorflow_experiment/scaler.joblib"
     },
     "metrics": {
-      "mae": 11.898771080181753,
-      "r2": -10.055755849660056,
-      "rmse": 13.211716297988438
+      "mae": 13.065878381262293,
+      "r2": -14.5134172311043,
+      "rmse": 15.506768318403221
     },
     "model_type": "tensorflow_keras",
     "name": "tensorflow_dense",
     "path": "models/latest/tensorflow_experiment"
   },
-  "test_rows": 139,
-  "trained_at": "2026-05-30T13:41:02Z",
-  "training_rows": 695
+  "test_rows": 143,
+  "trained_at": "2026-06-01T08:41:40Z",
+  "training_rows": 712
 }

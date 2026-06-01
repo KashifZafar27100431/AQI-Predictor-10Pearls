@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import os
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -11,6 +11,14 @@ def _bool_env(name: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_any(names: Iterable[str], default: Optional[str] = None) -> Optional[str]:
+    for name in names:
+        raw = os.getenv(name)
+        if raw is not None and raw != "":
+            return raw
+    return default
 
 
 def _local_model_fallback_enabled() -> bool:
@@ -31,15 +39,15 @@ def _runtime_path(env_name: str, local_default: str, serverless_default: str) ->
     return Path(local_default)
 
 
-def _int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
+def _int_env(name: str, default: int, aliases: Iterable[str] = ()) -> int:
+    raw = _env_any((name, *aliases))
     if raw is None or raw == "":
         return default
     return int(raw)
 
 
-def _float_env(name: str, default: float) -> float:
-    raw = os.getenv(name)
+def _float_env(name: str, default: float, aliases: Iterable[str] = ()) -> float:
+    raw = _env_any((name, *aliases))
     if raw is None or raw == "":
         return default
     return float(raw)
@@ -47,11 +55,13 @@ def _float_env(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class Settings:
-    city: str = field(default_factory=lambda: os.getenv("AQI_CITY", "Karachi"))
-    lat: float = field(default_factory=lambda: _float_env("AQI_LAT", 24.8607))
-    lon: float = field(default_factory=lambda: _float_env("AQI_LON", 67.0011))
+    city: str = field(default_factory=lambda: _env_any(("AQI_CITY", "CITY_NAME"), "Karachi") or "Karachi")
+    lat: float = field(default_factory=lambda: _float_env("AQI_LAT", 24.8607, aliases=("CITY_LAT",)))
+    lon: float = field(default_factory=lambda: _float_env("AQI_LON", 67.0011, aliases=("CITY_LON",)))
     forecast_hours: int = field(default_factory=lambda: _int_env("AQI_FORECAST_HOURS", 72))
-    timezone: str = field(default_factory=lambda: os.getenv("AQI_TIMEZONE", "Asia/Karachi"))
+    timezone: str = field(
+        default_factory=lambda: _env_any(("AQI_TIMEZONE", "TIMEZONE"), "Asia/Karachi") or "Asia/Karachi"
+    )
 
     openweather_api_key: Optional[str] = field(
         default_factory=lambda: os.getenv("OPENWEATHER_API_KEY") or None

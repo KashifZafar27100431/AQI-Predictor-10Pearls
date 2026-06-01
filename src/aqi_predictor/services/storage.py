@@ -5,6 +5,7 @@ import json
 import logging
 from pathlib import Path
 import shutil
+import tempfile
 from typing import Any, Dict, Iterable, List, Optional
 
 import pandas as pd
@@ -231,7 +232,10 @@ class ModelRegistryClient:
             return {"registered": False, "reason": "hopsworks_not_configured"}
         registry = project.get_model_registry()
         model = registry.python.create_model(MODEL_NAME, metrics=metrics)
-        model.save(str(self.model_dir))
+        with tempfile.TemporaryDirectory(prefix="aqi_model_upload_") as tmp:
+            upload_dir = Path(tmp)
+            _copy_registry_upload_artifacts(self.model_dir, upload_dir)
+            model.save(str(upload_dir))
         return {
             "registered": True,
             "model_name": MODEL_NAME,
@@ -416,3 +420,15 @@ def _copy_expected_model_artifacts(source_dir: Path, target_dir: Path) -> None:
     if not model_source.exists():
         model_source = _find_required_file(source_dir, MODEL_ARTIFACT_FILE)
     shutil.copy2(model_source, target_dir / MODEL_ARTIFACT_FILE)
+
+
+def _copy_registry_upload_artifacts(source_dir: Path, target_dir: Path) -> None:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for filename in (MODEL_METADATA_FILE, MODEL_ARTIFACT_FILE):
+        source = source_dir / filename
+        if source.exists() and source.is_file():
+            shutil.copy2(source, target_dir / filename)
+    for dirname in ("tensorflow_experiment", "explainability"):
+        source = source_dir / dirname
+        if source.exists() and source.is_dir():
+            shutil.copytree(source, target_dir / dirname, dirs_exist_ok=True)

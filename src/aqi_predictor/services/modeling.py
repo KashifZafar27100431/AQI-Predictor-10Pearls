@@ -30,6 +30,9 @@ from aqi_predictor.services.storage import MODEL_ARTIFACT_FILE, MODEL_METADATA_F
 
 
 logger = logging.getLogger(__name__)
+EXPLAINABILITY_DIR = "explainability"
+SHAP_SUMMARY_FILE = "shap_summary.json"
+FEATURE_IMPORTANCE_FILE = "feature_importance.json"
 
 
 class ModelLoadError(RuntimeError):
@@ -232,6 +235,22 @@ def train_and_register(frame: pd.DataFrame, settings: Settings) -> Dict[str, Any
         "test_rows": int(len(test)),
         "tensorflow_experiment": tensorflow_result,
     }
+    if best_model_type == "sklearn" and best_sklearn_model is not None:
+        metadata["explainability"] = write_explainability_artifacts(
+            best_sklearn_model,
+            train,
+            test,
+            feature_columns,
+            registry.model_dir,
+            metadata,
+        )
+    else:
+        metadata["explainability"] = {
+            "method": "not_available",
+            "status": "skipped",
+            "reason": "Selected model type is not covered by the lightweight SHAP reporting path.",
+            "computed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
     registry.save_metadata(metadata)
     try:
         metadata["registry"] = registry.register_hopsworks(best_metrics)
@@ -259,7 +278,7 @@ def load_model_bundle(settings: Settings) -> Tuple[Any, Dict[str, Any]]:
             )
         except Exception as exc:
             registry_error = exc
-            logger.warning("Hopsworks model registry load failed; evaluating local fallback.")
+            logger.warning("Hopsworks model registry load failed; evaluating local fallback.", exc_info=True)
 
     if not settings.allow_local_model_fallback:
         message = "No valid Hopsworks model is available and local model fallback is disabled."
@@ -398,6 +417,100 @@ def feature_importance(
     except Exception:
         pass
 
+    return _native_feature_importance(model, selected_columns, limit=limit)
+
+
+def write_explainability_artifacts(
+    model: Any,
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    feature_columns: List[str],
+    model_dir: Path,
+    metadata: Dict[str, Any],
+    limit: int = 20,
+) -> Dict[str, Any]:
+    sample_source = test if not test.empty else train
+    sample = ensure_feature_columns(sample_source, feature_columns).tail(min(len(sample_source), 120))
+    computed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    summary: Dict[str, Any] = {
+        "schema_version": 1,
+        "method": "shap",
+        "status": "ok",
+        "scope": "precomputed_training_holdout_sample",
+        "computed_at": computed_at,
+        "model_name": metadata.get("model_name"),
+        "model_type": metadata.get("model_type"),
+        "registry_version": metadata.get("registry_version") or (metadata.get("registry") or {}).get("version"),
+        "trained_at": metadata.get("trained_at"),
+        "metrics": metadata.get("metrics", {}),
+        "training_rows": metadata.get("training_rows"),
+        "test_rows": metadata.get("test_rows"),
+        "feature_columns": feature_columns,
+        "sample_rows": int(len(sample)),
+        "top_features": [],
+    }
+    if sample.empty:
+        summary.update(
+            {
+                "method": "not_available",
+                "status": "skipped",
+                "reason": "No rows were available for explainability sampling.",
+            }
+        )
+    else:
+        try:
+            summary["top_features"] = _shap_feature_importance(model, sample, feature_columns, limit=limit)
+        except Exception as exc:
+            logger.warning("SHAP explainability generation failed; writing model-native fallback.", exc_info=True)
+            summary.update(
+                {
+                    "method": "model_native_feature_importance",
+                    "status": "fallback",
+                    "error_type": type(exc).__name__,
+                    "top_features": _native_feature_importance(model, feature_columns, limit=limit),
+                }
+            )
+
+    artifacts_dir = model_dir / EXPLAINABILITY_DIR
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(artifacts_dir / SHAP_SUMMARY_FILE, summary)
+    importance_payload = _feature_importance_payload(summary)
+    _write_json(artifacts_dir / FEATURE_IMPORTANCE_FILE, importance_payload)
+
+    reports_dir = Path("reports")
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(reports_dir / SHAP_SUMMARY_FILE, summary)
+    _write_json(reports_dir / FEATURE_IMPORTANCE_FILE, importance_payload)
+
+    public_summary = dict(summary)
+    public_summary["artifacts"] = {
+        "shap_summary": f"{EXPLAINABILITY_DIR}/{SHAP_SUMMARY_FILE}",
+        "feature_importance": f"{EXPLAINABILITY_DIR}/{FEATURE_IMPORTANCE_FILE}",
+    }
+    return public_summary
+
+
+def _shap_feature_importance(
+    model: Any,
+    sample: pd.DataFrame,
+    feature_columns: List[str],
+    limit: int,
+) -> List[Dict[str, float]]:
+    import shap
+
+    background = sample.tail(min(len(sample), 50))
+    explained = sample.tail(min(len(sample), 100))
+    explainer = shap.PermutationExplainer(model.predict, background)
+    values = explainer(explained, max_evals=2 * len(feature_columns) + 1)
+    matrix = np.asarray(values.values, dtype=float)
+    if matrix.ndim == 3:
+        matrix = matrix[..., 0]
+    mean_abs = np.abs(matrix).mean(axis=0)
+    pairs = sorted(zip(feature_columns, mean_abs), key=lambda item: item[1], reverse=True)
+    return [{"feature": name, "importance": float(value)} for name, value in pairs[:limit]]
+
+
+def _native_feature_importance(model: Any, feature_columns: List[str], limit: int = 12) -> List[Dict[str, float]]:
     estimator = model
     if isinstance(model, Pipeline):
         estimator = model.steps[-1][1]
@@ -407,8 +520,30 @@ def feature_importance(
         importances = np.abs(estimator.coef_)
     else:
         return []
-    pairs = sorted(zip(selected_columns, importances), key=lambda item: item[1], reverse=True)
+    pairs = sorted(zip(feature_columns, importances), key=lambda item: item[1], reverse=True)
     return [{"feature": name, "importance": float(value)} for name, value in pairs[:limit]]
+
+
+def _write_json(path: Path, payload: Dict[str, Any]) -> None:
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+
+
+def _feature_importance_payload(summary: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "schema_version": summary.get("schema_version", 1),
+        "method": summary.get("method"),
+        "status": summary.get("status"),
+        "computed_at": summary.get("computed_at"),
+        "model_name": summary.get("model_name"),
+        "model_type": summary.get("model_type"),
+        "registry_version": summary.get("registry_version"),
+        "trained_at": summary.get("trained_at"),
+        "training_rows": summary.get("training_rows"),
+        "test_rows": summary.get("test_rows"),
+        "sample_rows": summary.get("sample_rows"),
+        "top_features": summary.get("top_features", []),
+    }
 
 
 def write_training_report(settings: Settings, metadata: Dict[str, Any]) -> Path:

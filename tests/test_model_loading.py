@@ -241,3 +241,41 @@ def test_tensorflow_registry_artifacts_are_copied_to_controlled_cache(tmp_path, 
     assert downloaded["model_path"].name == "model.keras"
     assert (downloaded["artifact_dir"] / "tensorflow_experiment/model.keras").exists()
     assert (downloaded["artifact_dir"] / "tensorflow_experiment/scaler.joblib").exists()
+
+
+def test_hopsworks_registration_uses_clean_upload_staging_dir(tmp_path, monkeypatch):
+    model_dir = tmp_path / "models"
+    _write_model_artifact(model_dir)
+    (model_dir / "registry_cache" / "version_1").mkdir(parents=True)
+    (model_dir / "registry_cache" / "version_1" / "old.joblib").write_bytes(b"old")
+    (model_dir / "explainability").mkdir()
+    (model_dir / "explainability" / "shap_summary.json").write_text("{}", encoding="utf-8")
+
+    class FakeModel:
+        version = 12
+
+        def save(self, path):
+            upload_dir = Path(path)
+            assert (upload_dir / "metadata.json").exists()
+            assert (upload_dir / "model.joblib").exists()
+            assert (upload_dir / "explainability" / "shap_summary.json").exists()
+            assert not (upload_dir / "registry_cache").exists()
+
+    class FakePythonRegistry:
+        def create_model(self, name, metrics):
+            return FakeModel()
+
+    class FakeRegistry:
+        python = FakePythonRegistry()
+
+    class FakeProject:
+        def get_model_registry(self):
+            return FakeRegistry()
+
+    monkeypatch.setattr(ModelRegistryClient, "_hopsworks_project", lambda self: FakeProject())
+    settings = Settings(model_dir=model_dir, hopsworks_api_key="configured", hopsworks_project="project")
+
+    result = ModelRegistryClient(settings).register_hopsworks({"rmse": 1.0})
+
+    assert result["registered"] is True
+    assert result["version"] == 12

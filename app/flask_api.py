@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib.util
 import logging
+import platform
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,6 +75,57 @@ def create_app():
             return False
         raise ApiInputError(f"{name} must be a boolean.")
 
+    def _module_available(name: str) -> bool:
+        return importlib.util.find_spec(name) is not None
+
+    def _env_present(*names: str) -> bool:
+        import os
+
+        return any(bool(os.getenv(name)) for name in names)
+
+    def _diagnostics_payload() -> dict:
+        return {
+            "status": "ok",
+            "service": "Karachi AQI Predictor API",
+            "python_version": platform.python_version(),
+            "runtime": {
+                "vercel": _env_present("VERCEL"),
+                "model_cache_dir": str(settings.model_dir),
+                "data_cache_dir": str(settings.local_data_dir),
+            },
+            "packages": {
+                "flask": _module_available("flask"),
+                "flask_cors": _module_available("flask_cors"),
+                "hopsworks": _module_available("hopsworks"),
+                "pyarrow": _module_available("pyarrow"),
+                "pandas": _module_available("pandas"),
+                "sklearn": _module_available("sklearn"),
+                "joblib": _module_available("joblib"),
+                "pymongo": _module_available("pymongo"),
+            },
+            "env": {
+                "OPENWEATHER_API_KEY": _env_present("OPENWEATHER_API_KEY"),
+                "HOPSWORKS_API_KEY": _env_present("HOPSWORKS_API_KEY"),
+                "HOPSWORKS_PROJECT": _env_present("HOPSWORKS_PROJECT"),
+                "MONGODB_URI": _env_present("MONGODB_URI"),
+                "MONGODB_DATABASE": _env_present("MONGODB_DATABASE"),
+                "ALLOWED_ORIGINS": _env_present("ALLOWED_ORIGINS"),
+                "AQI_CITY_OR_CITY_NAME": _env_present("AQI_CITY", "CITY_NAME"),
+                "AQI_LAT_OR_CITY_LAT": _env_present("AQI_LAT", "CITY_LAT"),
+                "AQI_LON_OR_CITY_LON": _env_present("AQI_LON", "CITY_LON"),
+                "AQI_TIMEZONE_OR_TIMEZONE": _env_present("AQI_TIMEZONE", "TIMEZONE"),
+            },
+            "configuration": {
+                "city": settings.city,
+                "lat": settings.lat,
+                "lon": settings.lon,
+                "timezone": settings.timezone,
+                "local_model_fallback_enabled": settings.allow_local_model_fallback,
+                "hopsworks_registry_required": settings.require_hopsworks_model_registry,
+                "max_forecast_hours": settings.max_forecast_hours,
+            },
+        }
+
     @app.get("/health")
     def health():
         return jsonify({"status": "ok", "city": settings.city, "timezone": settings.timezone})
@@ -85,9 +138,20 @@ def create_app():
                 "service": "Karachi AQI Predictor API",
                 "city": settings.city,
                 "timezone": settings.timezone,
-                "routes": ["/health", "/latest", "/predict?horizon=72", "/alerts", "/model-info"],
+                "routes": [
+                    "/health",
+                    "/diagnostics",
+                    "/latest",
+                    "/predict?horizon=72",
+                    "/alerts",
+                    "/model-info",
+                ],
             }
         )
+
+    @app.get("/diagnostics")
+    def diagnostics():
+        return jsonify(_diagnostics_payload())
 
     @app.get("/latest")
     def latest():
