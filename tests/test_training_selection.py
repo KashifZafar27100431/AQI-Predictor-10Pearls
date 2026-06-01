@@ -30,9 +30,10 @@ def test_tensorflow_candidate_can_be_selected_when_it_has_best_rmse(tmp_path, mo
                 "keras_model": "tensorflow_experiment/model.keras",
                 "scaler": "tensorflow_experiment/scaler.joblib",
             },
-        }
+    }
 
     monkeypatch.setattr(modeling, "_tensorflow_experiment", fake_tensorflow_experiment)
+    monkeypatch.chdir(tmp_path)
 
     metadata = modeling.train_and_register(history, settings)
 

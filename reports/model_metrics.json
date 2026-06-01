@@ -44,7 +44,7 @@
       "feature_importance": "explainability/feature_importance.json",
       "shap_summary": "explainability/shap_summary.json"
     },
-    "computed_at": "2026-06-01T08:42:59Z",
+    "computed_at": "2026-06-01T08:58:09Z",
     "feature_columns": [
       "co",
       "no",
@@ -82,63 +82,63 @@
     "top_features": [
       {
         "feature": "aqi_lag_1h",
-        "importance": 3.2058378027686967
+        "importance": 3.2058378027686927
       },
       {
         "feature": "aqi_rolling_3h",
-        "importance": 0.5844412076267708
+        "importance": 0.5844412076267748
       },
       {
         "feature": "aqi_change_rate",
-        "importance": 0.4857524848647701
+        "importance": 0.48575248486477235
       },
       {
         "feature": "pm2_5",
-        "importance": 0.38842813900652445
+        "importance": 0.38842813900652584
       },
       {
         "feature": "pm10",
-        "importance": 0.26274187210690036
+        "importance": 0.26274187210690025
       },
       {
         "feature": "aqi_rolling_24h",
-        "importance": 0.039804510117998466
+        "importance": 0.03980451011800028
       },
       {
         "feature": "hour",
-        "importance": 0.03786408351459475
+        "importance": 0.037864083514592826
       },
       {
         "feature": "no",
-        "importance": 0.03731365847936608
+        "importance": 0.03731365847936598
       },
       {
         "feature": "no2",
-        "importance": 0.026274249469124912
+        "importance": 0.026274249469125016
       },
       {
         "feature": "is_weekend",
-        "importance": 0.025356867224941092
+        "importance": 0.025356867224941553
       },
       {
         "feature": "weekday",
-        "importance": 0.019145652376100095
+        "importance": 0.01914565237609949
       },
       {
         "feature": "so2",
-        "importance": 0.019130611251191212
+        "importance": 0.01913061125119011
       },
       {
         "feature": "day",
-        "importance": 0.008446545987647838
+        "importance": 0.008446545987649863
       },
       {
         "feature": "co",
-        "importance": 0.003976897744647232
+        "importance": 0.003976897744646522
       },
       {
         "feature": "o3",
-        "importance": 0.003240206856294456
+        "importance": 0.003240206856294421
       },
       {
         "feature": "nh3",
@@ -245,7 +245,7 @@
     },
     "weather_missing_threshold": 0.5
   },
-  "loaded_at": "2026-06-01T08:42:59Z",
+  "loaded_at": "2026-06-01T08:58:09Z",
   "metrics": {
     "mae": 0.18268742669590105,
     "r2": 0.9971578019391951,
