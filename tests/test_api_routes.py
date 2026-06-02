@@ -142,6 +142,7 @@ def test_ready_reports_safe_not_ready_categories(monkeypatch):
     assert response.status_code == 503
     assert response.json["status"] == "not_ready"
     assert response.json["checks"]["model_registry"] == "model_registry_unavailable"
+    assert "recommended_env" in response.json
     assert "secret-token" not in body
     assert "mongodb://secret-host" not in body
 

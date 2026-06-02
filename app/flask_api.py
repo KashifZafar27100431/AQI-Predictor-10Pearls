@@ -146,10 +146,6 @@ def create_app():
             "HOPSWORKS_PROJECT",
             "MONGODB_URI",
             "MONGODB_DATABASE",
-            "AQI_CITY",
-            "AQI_LAT",
-            "AQI_LON",
-            "AQI_TIMEZONE",
         ]
         env = _env_checks()
         if not all(env.get(key) for key in required_env):
@@ -201,6 +197,15 @@ def create_app():
                 "city": settings.city,
                 "timezone": settings.timezone,
                 "checks": checks,
+                "recommended_env": {
+                    "AQI_CITY": env.get("AQI_CITY"),
+                    "AQI_LAT": env.get("AQI_LAT"),
+                    "AQI_LON": env.get("AQI_LON"),
+                    "AQI_TIMEZONE": env.get("AQI_TIMEZONE"),
+                    "HOPSWORKS_MODEL_VERSION": env.get("HOPSWORKS_MODEL_VERSION"),
+                    "AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY": env.get("AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY"),
+                    "AQI_ALLOW_LOCAL_MODEL_FALLBACK": env.get("AQI_ALLOW_LOCAL_MODEL_FALLBACK"),
+                },
                 "model": model_payload,
                 "last_model_load": get_last_model_load_status(),
             },
