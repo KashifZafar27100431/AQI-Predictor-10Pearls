@@ -187,7 +187,7 @@ GitHub Actions:
 
 Dashboard deployment target: Streamlit Community Cloud. Set `API_BASE_URL=https://aqi-predictor-10-pearls.vercel.app` if the dashboard should call the Flask API; omit it to use the shared service code directly from Streamlit.
 
-Primary API deployment target: Vercel using `api/index.py`, `vercel.json`, and lightweight `requirements-api.txt` runtime dependencies. Cloud Run using the included `Dockerfile` remains the fallback if Vercel hits dependency size, timeout, memory, Hopsworks cold-start, pyarrow, or TensorFlow-serving limits.
+Primary API deployment target: Vercel using `api/index.py` and `vercel.json`. Keep Vercel on its default Python install/bundling behavior; a custom `installCommand` with `requirements-api.txt` produced an oversized bundle on Vercel. `requirements-api.txt` remains the API runtime dependency reference for local/API-only installs, while Streamlit Cloud continues to use the root `requirements.txt`. Cloud Run using the included `Dockerfile` remains the fallback if Vercel hits dependency size, timeout, memory, Hopsworks cold-start, pyarrow, or TensorFlow-serving limits.
 
 The `.streamlit/config.toml` file provides Streamlit Cloud defaults for theme, headless mode, CORS, XSRF protection, and disabled usage telemetry.
 Some command-line checks may see Streamlit Community Cloud auth redirects while normal browser access works; verify public access from a browser and do not weaken Streamlit security settings just to satisfy `curl`.
