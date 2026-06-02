@@ -4,39 +4,39 @@
   },
   "candidate_metrics": {
     "baseline_moving_average": {
-      "mae": 2.7179487179487176,
-      "r2": -0.03097320770663714,
-      "rmse": 3.9975255798382032
+      "mae": 2.3949652777777777,
+      "r2": 0.268590638308948,
+      "rmse": 3.2926133337497165
     },
     "baseline_persistence": {
-      "mae": 0.6083916083916084,
-      "r2": 0.9445075434910178,
-      "rmse": 0.927437254017683
+      "mae": 0.625,
+      "r2": 0.9381570085795438,
+      "rmse": 0.9574271077563381
     },
     "baseline_train_mean": {
-      "mae": 11.824167045608169,
-      "r2": -9.019988618092077,
-      "rmse": 12.462385348632626
+      "mae": 11.832133507853403,
+      "r2": -9.445069814442489,
+      "rmse": 12.442743507223646
     },
     "hist_gradient_boosting": {
-      "mae": 0.8866917934999176,
-      "r2": 0.9352785701805277,
-      "rmse": 1.0015937673248454
+      "mae": 1.0370115025637616,
+      "r2": 0.9079619966717283,
+      "rmse": 1.1680032989899065
     },
     "random_forest": {
-      "mae": 0.47707716727716326,
-      "r2": 0.9768047527873971,
-      "rmse": 0.5996075112428172
+      "mae": 0.4942673631152754,
+      "r2": 0.9743267868815773,
+      "rmse": 0.6168798551843914
     },
     "ridge": {
-      "mae": 0.18268742669590105,
-      "r2": 0.9971578019391951,
-      "rmse": 0.20989144197999568
+      "mae": 0.17918539800182087,
+      "r2": 0.9970366032455551,
+      "rmse": 0.20958267329361702
     },
     "tensorflow_dense": {
-      "mae": 13.065878381262293,
-      "r2": -14.5134172311043,
-      "rmse": 15.506768318403221
+      "mae": 14.48464528719584,
+      "r2": -19.49886976601093,
+      "rmse": 17.43112564419009
     }
   },
   "explainability": {
@@ -44,7 +44,7 @@
       "feature_importance": "explainability/feature_importance.json",
       "shap_summary": "explainability/shap_summary.json"
     },
-    "computed_at": "2026-06-01T08:58:09Z",
+    "computed_at": "2026-06-02T05:02:32Z",
     "feature_columns": [
       "co",
       "no",
@@ -67,85 +67,85 @@
     ],
     "method": "shap",
     "metrics": {
-      "mae": 0.18268742669590105,
-      "r2": 0.9971578019391951,
-      "rmse": 0.20989144197999568
+      "mae": 0.17918539800182087,
+      "r2": 0.9970366032455551,
+      "rmse": 0.20958267329361702
     },
     "model_name": "ridge",
     "model_type": "sklearn",
-    "registry_version": 8,
+    "registry_version": 9,
     "sample_rows": 120,
     "schema_version": 1,
     "scope": "precomputed_training_holdout_sample",
     "status": "ok",
-    "test_rows": 143,
+    "test_rows": 144,
     "top_features": [
       {
         "feature": "aqi_lag_1h",
-        "importance": 3.2058378027686927
-      },
-      {
-        "feature": "aqi_rolling_3h",
-        "importance": 0.5844412076267748
+        "importance": 2.6595926523235875
       },
       {
         "feature": "aqi_change_rate",
-        "importance": 0.48575248486477235
+        "importance": 0.5335366839572938
+      },
+      {
+        "feature": "aqi_rolling_3h",
+        "importance": 0.4931441430832162
       },
       {
         "feature": "pm2_5",
-        "importance": 0.38842813900652584
+        "importance": 0.3141648769132836
       },
       {
         "feature": "pm10",
-        "importance": 0.26274187210690025
-      },
-      {
-        "feature": "aqi_rolling_24h",
-        "importance": 0.03980451011800028
-      },
-      {
-        "feature": "hour",
-        "importance": 0.037864083514592826
-      },
-      {
-        "feature": "no",
-        "importance": 0.03731365847936598
-      },
-      {
-        "feature": "no2",
-        "importance": 0.026274249469125016
-      },
-      {
-        "feature": "is_weekend",
-        "importance": 0.025356867224941553
-      },
-      {
-        "feature": "weekday",
-        "importance": 0.01914565237609949
-      },
-      {
-        "feature": "so2",
-        "importance": 0.01913061125119011
-      },
-      {
-        "feature": "day",
-        "importance": 0.008446545987649863
-      },
-      {
-        "feature": "co",
-        "importance": 0.003976897744646522
-      },
-      {
-        "feature": "o3",
-        "importance": 0.003240206856294421
-      },
-      {
-        "feature": "nh3",
-        "importance": 0.0
+        "importance": 0.22160621522896448
       },
       {
         "feature": "month",
+        "importance": 0.1198872697372543
+      },
+      {
+        "feature": "aqi_rolling_24h",
+        "importance": 0.047414964079806235
+      },
+      {
+        "feature": "hour",
+        "importance": 0.038341335775844636
+      },
+      {
+        "feature": "day",
+        "importance": 0.03604718558245423
+      },
+      {
+        "feature": "is_weekend",
+        "importance": 0.03592330100722066
+      },
+      {
+        "feature": "no",
+        "importance": 0.032304703617425864
+      },
+      {
+        "feature": "no2",
+        "importance": 0.0241492645712864
+      },
+      {
+        "feature": "so2",
+        "importance": 0.016063049281228814
+      },
+      {
+        "feature": "weekday",
+        "importance": 0.015078318180444122
+      },
+      {
+        "feature": "o3",
+        "importance": 0.005262153256085149
+      },
+      {
+        "feature": "co",
+        "importance": 0.003408269325844948
+      },
+      {
+        "feature": "nh3",
         "importance": 0.0
       },
       {
@@ -153,8 +153,8 @@
         "importance": 0.0
       }
     ],
-    "trained_at": "2026-06-01T08:41:40Z",
-    "training_rows": 712
+    "trained_at": "2026-06-02T05:02:32Z",
+    "training_rows": 717
   },
   "feature_columns": [
     "co",
@@ -235,25 +235,25 @@
       "forecast_horizon"
     ],
     "weather_missing_fraction": {
-      "clouds": 0.9676966292134831,
-      "feels_like": 0.9676966292134831,
-      "humidity": 0.9676966292134831,
-      "pressure": 0.9676966292134831,
-      "temp": 0.9676966292134831,
-      "wind_deg": 0.9676966292134831,
-      "wind_speed": 0.9676966292134831
+      "clouds": 0.9609483960948396,
+      "feels_like": 0.9609483960948396,
+      "humidity": 0.9609483960948396,
+      "pressure": 0.9609483960948396,
+      "temp": 0.9609483960948396,
+      "wind_deg": 0.9609483960948396,
+      "wind_speed": 0.9609483960948396
     },
     "weather_missing_threshold": 0.5
   },
-  "loaded_at": "2026-06-01T08:58:09Z",
+  "loaded_at": "2026-06-02T09:50:33Z",
   "metrics": {
-    "mae": 0.18268742669590105,
-    "r2": 0.9971578019391951,
-    "rmse": 0.20989144197999568
+    "mae": 0.17918539800182087,
+    "r2": 0.9970366032455551,
+    "rmse": 0.20958267329361702
   },
   "model_name": "ridge",
   "model_type": "sklearn",
-  "registry_version": 8,
+  "registry_version": 9,
   "serving_source": "hopsworks_model_registry",
   "target": "aqi_score",
   "tensorflow_experiment": {
@@ -262,15 +262,15 @@
       "scaler": "tensorflow_experiment/scaler.joblib"
     },
     "metrics": {
-      "mae": 13.065878381262293,
-      "r2": -14.5134172311043,
-      "rmse": 15.506768318403221
+      "mae": 14.48464528719584,
+      "r2": -19.49886976601093,
+      "rmse": 17.43112564419009
     },
     "model_type": "tensorflow_keras",
     "name": "tensorflow_dense",
     "path": "models/latest/tensorflow_experiment"
   },
-  "test_rows": 143,
-  "trained_at": "2026-06-01T08:41:40Z",
-  "training_rows": 712
+  "test_rows": 144,
+  "trained_at": "2026-06-02T05:02:32Z",
+  "training_rows": 717
 }

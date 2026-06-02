@@ -196,6 +196,19 @@ def _apply_report_explainability_fallback(model_info: dict) -> dict:
     return updated
 
 
+def _alert_label(level: str) -> str:
+    return {
+        "sensitive_groups": "Sensitive group alert",
+        "unhealthy": "Health alert",
+        "very_unhealthy": "Serious health alert",
+        "hazardous": "Emergency hazardous alert",
+    }.get(level, "No alert")
+
+
+def _alert_severity(level: str) -> int:
+    return {"sensitive_groups": 1, "unhealthy": 2, "very_unhealthy": 3, "hazardous": 4}.get(level, 0)
+
+
 def _render_model_section(
     payload: dict,
     service: Optional[PredictionService] = None,
@@ -237,7 +250,8 @@ def _render_model_section(
     st.caption(
         f"Model trained: {_model_value(model, 'trained_at')} | "
         f"Registry version: {_model_value(model, 'registry_version', default='local')} | "
-        f"Latest feature: {freshness.get('latest_feature_event_time_local') or 'unknown'}"
+        f"Latest feature: {freshness.get('latest_feature_event_time_local') or 'unknown'} | "
+        f"Freshness: {freshness.get('status', 'unknown')}"
     )
 
     importance = pd.DataFrame(model_info.get("feature_importance", []))
@@ -350,13 +364,19 @@ def main() -> None:
         if pollutant_columns:
             st.line_chart(predictions.set_index("event_time")[pollutant_columns])
     with right:
-        unhealthy = predictions[predictions["alert_level"].isin(["unhealthy", "hazardous"])]
-        if unhealthy.empty:
+        alerts = predictions[~predictions["alert_level"].isin(["normal"])]
+        if alerts.empty:
             st.success("No unhealthy forecast hours.")
         else:
-            st.error(f"{len(unhealthy)} unhealthy forecast hours.")
+            worst_level = max(alerts["alert_level"], key=_alert_severity)
+            worst_alert = _alert_label(worst_level)
+            st.error(f"{len(alerts)} forecast alert hours. Highest: {worst_alert}.")
+            display_alerts = alerts.copy()
+            display_alerts["alert"] = display_alerts["alert_level"].map(_alert_label)
             st.dataframe(
-                unhealthy[["event_time_local", "predicted_aqi_score", "aqi_category", "primary_pollutant"]].head(8),
+                display_alerts[
+                    ["event_time_local", "predicted_aqi_score", "aqi_category", "alert", "primary_pollutant"]
+                ].head(8),
                 width="stretch",
                 hide_index=True,
             )

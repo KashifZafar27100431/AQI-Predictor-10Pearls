@@ -41,6 +41,20 @@ class FakeMongoStore:
     def insert_predictions(self, records: list[dict]) -> None:
         self.insert_count += 1
 
+    def list_alerts(self, limit: int = 20) -> list[dict]:
+        return []
+
+
+class FreshFeatureStore(FakeFeatureStore):
+    def read_feature_group(self, name: str, limit: Optional[int] = None) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "event_time": [pd.Timestamp.utcnow()],
+                "aqi_score": [75.0],
+                **{column: [0.0] for column in FEATURE_COLUMNS},
+            }
+        )
+
 
 def _patch_constant_model(monkeypatch) -> None:
     def fake_load_model_bundle(settings: Settings):
@@ -117,6 +131,18 @@ def test_model_info_prefers_precomputed_explainability(monkeypatch):
     assert model_info["feature_importance"] == [{"feature": "pm2_5", "importance": 1.25}]
 
 
+def test_model_info_includes_feature_freshness(monkeypatch):
+    _patch_constant_model(monkeypatch)
+    settings = Settings(use_sample_data=True, openweather_api_key=None, mongodb_uri=None)
+    service = PredictionService(settings, feature_store=FreshFeatureStore(), mongo_store=FakeMongoStore())
+
+    model_info = service.model_info_payload()
+
+    assert model_info["data_freshness"]["status"] == "fresh"
+    assert model_info["data_freshness"]["latest_feature_age_minutes"] is not None
+    assert model_info["data_freshness"]["latest_feature_event_time_local"] is not None
+
+
 def test_prediction_can_skip_persistence_for_dashboard_reruns(monkeypatch):
     _patch_constant_model(monkeypatch)
     settings = Settings(use_sample_data=True, openweather_api_key=None, mongodb_uri=None)
@@ -129,3 +155,36 @@ def test_prediction_can_skip_persistence_for_dashboard_reruns(monkeypatch):
     assert payload["prediction_store"] == "not_persisted"
     assert feature_store.insert_count == 0
     assert mongo_store.insert_count == 0
+
+
+def test_alerts_payload_falls_back_to_current_forecast_for_usg_alerts(monkeypatch):
+    class SensitiveGroupModel(ConstantModel):
+        def predict(self, frame: pd.DataFrame) -> np.ndarray:
+            return np.repeat(111.0, len(frame))
+
+    def fake_load_model_bundle(settings: Settings):
+        return SensitiveGroupModel(), {
+            "model_name": "sensitive_group_model",
+            "trained_at": "2026-05-31T00:00:00Z",
+            "metrics": {"rmse": 1.0, "mae": 1.0, "r2": 0.0},
+            "serving_source": "hopsworks_model_registry",
+            "registry_version": 9,
+            "feature_columns": FEATURE_COLUMNS,
+            "feature_count": len(FEATURE_COLUMNS),
+        }
+
+    monkeypatch.setattr(prediction_module, "load_model_bundle", fake_load_model_bundle)
+    settings = Settings(
+        forecast_hours=3,
+        use_sample_data=True,
+        openweather_api_key=None,
+        mongodb_uri=None,
+    )
+    service = PredictionService(settings, feature_store=FakeFeatureStore(), mongo_store=FakeMongoStore())
+
+    payload = service.alerts_payload(limit=10)
+
+    assert payload["source"] == "current_forecast"
+    assert len(payload["alerts"]) == 3
+    assert {record["alert_level"] for record in payload["alerts"]} == {"sensitive_groups"}
+    assert {record["aqi_category"] for record in payload["alerts"]} == {"Unhealthy for Sensitive Groups"}

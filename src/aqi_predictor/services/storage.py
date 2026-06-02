@@ -25,6 +25,11 @@ MODEL_METADATA_FILE = "metadata.json"
 logger = logging.getLogger(__name__)
 
 
+def _log_runtime_event(event: str, **fields: Any) -> None:
+    safe_fields = {key: value for key, value in fields.items() if value is not None}
+    logger.info("runtime_event=%s details=%s", event, safe_fields)
+
+
 class FeatureStoreClient:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -129,7 +134,10 @@ class FeatureStoreClient:
                     frame["event_time"] = pd.to_datetime(frame["event_time"], utc=True)
             except Exception:
                 if hopsworks_configured:
-                    logger.warning("Hopsworks feature-group read failed for %s; falling back to local cache.", name)
+                    logger.warning(
+                        "feature_store_read_failed feature_group=%s; falling back to local cache.",
+                        name,
+                    )
                 frame = pd.DataFrame()
         if frame.empty:
             frame = self._read_local(name)
@@ -178,7 +186,7 @@ class MongoStore:
         now = datetime.now(timezone.utc)
         payload = [dict(record, created_at=now) for record in records]
         db.predictions.insert_many(payload)
-        alerts = [record for record in payload if record.get("alert_level") in {"unhealthy", "hazardous"}]
+        alerts = [record for record in payload if record.get("alert_level") not in {None, "normal"}]
         if alerts:
             db.alerts.insert_many(alerts)
 
@@ -221,10 +229,17 @@ class ModelRegistryClient:
             return None
         import hopsworks
 
-        return hopsworks.login(
-            project=self.settings.hopsworks_project,
-            api_key_value=self.settings.hopsworks_api_key,
-        )
+        _log_runtime_event("hopsworks_login_started", project_configured=bool(self.settings.hopsworks_project))
+        try:
+            project = hopsworks.login(
+                project=self.settings.hopsworks_project,
+                api_key_value=self.settings.hopsworks_api_key,
+            )
+        except Exception:
+            _log_runtime_event("hopsworks_login_failed", project_configured=bool(self.settings.hopsworks_project))
+            raise
+        _log_runtime_event("hopsworks_login_success", project_configured=bool(self.settings.hopsworks_project))
+        return project
 
     def register_hopsworks(self, metrics: Dict[str, float]) -> Dict[str, Any]:
         project = self._hopsworks_project()
@@ -244,6 +259,18 @@ class ModelRegistryClient:
         }
 
     def download_latest_hopsworks_model(self) -> Dict[str, Any]:
+        if self.settings.hopsworks_model_version is not None:
+            pinned_cache_dir = self.registry_cache_dir / f"version_{self.settings.hopsworks_model_version}"
+            cached = _load_cached_model_download(pinned_cache_dir, self.settings.hopsworks_model_version)
+            if cached is not None:
+                _log_runtime_event(
+                    "model_registry_download_success",
+                    version=self.settings.hopsworks_model_version,
+                    cache_hit=True,
+                    pinned=True,
+                )
+                return cached
+
         project = self._hopsworks_project()
         if project is None:
             raise RuntimeError("Hopsworks credentials are not configured.")
@@ -254,8 +281,10 @@ class ModelRegistryClient:
 
         cached = _load_cached_model_download(target_dir, version)
         if cached is not None:
+            _log_runtime_event("model_registry_download_success", version=version, cache_hit=True)
             return cached
 
+        _log_runtime_event("model_registry_download_started", version=version, cache_hit=False)
         if target_dir.exists():
             logger.warning("Refreshing incomplete Hopsworks model cache at %s.", target_dir)
             shutil.rmtree(target_dir)
@@ -274,7 +303,9 @@ class ModelRegistryClient:
                 downloaded_resolved.relative_to(target_dir.resolve())
             except ValueError:
                 _copy_expected_model_artifacts(downloaded_resolved, target_dir)
-        return _model_download_payload_from_dir(target_dir, version)
+        payload = _model_download_payload_from_dir(target_dir, version)
+        _log_runtime_event("model_registry_download_success", version=version, cache_hit=False)
+        return payload
 
     def _select_hopsworks_model(self, registry: Any) -> Any:
         if self.settings.hopsworks_model_version is not None:

@@ -9,7 +9,7 @@ import app.flask_api as flask_api
 class FakePredictionService:
     def __init__(self, settings):
         self.settings = settings
-        self.openweather = SimpleNamespace(configured=True)
+        self.openweather = SimpleNamespace(configured=True, current_air_pollution=lambda: {"list": []})
         self.last_limit = None
         self.last_store_predictions = None
 
@@ -26,9 +26,14 @@ class FakePredictionService:
             "predictions": [],
         }
 
-    def alerts_payload(self, limit=20):
+    def alerts_payload(self, limit=20, include_forecast=True):
         self.last_limit = limit
-        return {"city": self.settings.city, "limit": limit, "alerts": []}
+        return {
+            "city": self.settings.city,
+            "limit": limit,
+            "include_forecast": include_forecast,
+            "alerts": [],
+        }
 
     def model_info_payload(self):
         return {
@@ -38,12 +43,29 @@ class FakePredictionService:
             "feature_importance": [],
         }
 
+    def model_metadata(self):
+        return {
+            "serving_source": "hopsworks_model_registry",
+            "registry_version": 9,
+            "model_name": "ridge",
+            "trained_at": "2026-06-02T05:02:32Z",
+        }
+
 
 def _client(monkeypatch):
     monkeypatch.setattr(flask_api, "PredictionService", FakePredictionService)
     monkeypatch.setenv("AQI_FORECAST_HOURS", "72")
     monkeypatch.setenv("AQI_MAX_FORECAST_HOURS", "72")
     monkeypatch.setenv("AQI_MAX_API_LIMIT", "500")
+    monkeypatch.setenv("OPENWEATHER_API_KEY", "secret-openweather")
+    monkeypatch.setenv("HOPSWORKS_API_KEY", "secret-hopsworks")
+    monkeypatch.setenv("HOPSWORKS_PROJECT", "project-name")
+    monkeypatch.setenv("MONGODB_URI", "mongodb://secret-host")
+    monkeypatch.setenv("MONGODB_DATABASE", "pearls_aqi")
+    monkeypatch.setenv("AQI_CITY", "Karachi")
+    monkeypatch.setenv("AQI_LAT", "24.8607")
+    monkeypatch.setenv("AQI_LON", "67.0011")
+    monkeypatch.setenv("AQI_TIMEZONE", "Asia/Karachi")
     monkeypatch.setenv(
         "ALLOWED_ORIGINS",
         "https://karachi-aqi-predictor-10pearls.streamlit.app,http://localhost:8501",
@@ -57,9 +79,12 @@ def test_health_latest_alerts_and_model_info(monkeypatch):
 
     assert client.get("/").json["service"] == "Karachi AQI Predictor API"
     assert client.get("/health").status_code == 200
+    assert client.get("/ready").status_code == 200
     assert client.get("/diagnostics").status_code == 200
     assert client.get("/latest").status_code == 200
     assert client.get("/alerts?limit=999").json["limit"] == 500
+    assert client.get("/alerts?forecast=false").json["include_forecast"] is False
+    assert client.get("/alerts?forecast=maybe").status_code == 400
     assert client.get("/model-info").json["model"]["serving_source"] == "local_model_dir"
 
 
@@ -87,11 +112,38 @@ def test_diagnostics_are_safe_and_include_runtime_dependency_checks(monkeypatch)
     assert response.status_code == 200
     assert payload["env"]["OPENWEATHER_API_KEY"] is True
     assert payload["env"]["HOPSWORKS_API_KEY"] is True
+    assert "HOPSWORKS_MODEL_VERSION" in payload["env"]
+    assert "AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY" in payload["env"]
+    assert "AQI_ALLOW_LOCAL_MODEL_FALLBACK" in payload["env"]
     assert "pyarrow" in payload["packages"]
+    assert payload["runtime"]["model_cache_writable"] is True
+    assert "last_model_load" in payload
     assert payload["configuration"]["local_model_fallback_enabled"] is False
     serialized = response.get_data(as_text=True)
     assert "secret-openweather" not in serialized
     assert "secret-hopsworks" not in serialized
+
+
+def test_ready_reports_safe_not_ready_categories(monkeypatch):
+    class NotReadyPredictionService(FakePredictionService):
+        def model_metadata(self):
+            raise RuntimeError("Traceback: /private/path secret-token")
+
+    monkeypatch.setattr(flask_api, "PredictionService", NotReadyPredictionService)
+    monkeypatch.setenv("OPENWEATHER_API_KEY", "secret-openweather")
+    monkeypatch.setenv("HOPSWORKS_API_KEY", "secret-hopsworks")
+    monkeypatch.setenv("HOPSWORKS_PROJECT", "project-name")
+    monkeypatch.setenv("MONGODB_URI", "mongodb://secret-host")
+    monkeypatch.setenv("MONGODB_DATABASE", "pearls_aqi")
+
+    response = flask_api.create_app().test_client().get("/ready")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 503
+    assert response.json["status"] == "not_ready"
+    assert response.json["checks"]["model_registry"] == "model_registry_unavailable"
+    assert "secret-token" not in body
+    assert "mongodb://secret-host" not in body
 
 
 def test_public_errors_hide_tracebacks_and_internal_messages(monkeypatch):

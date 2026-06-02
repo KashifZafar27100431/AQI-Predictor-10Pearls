@@ -142,6 +142,28 @@ def test_registry_download_reuses_existing_complete_cache(tmp_path, monkeypatch)
     assert downloaded["metadata_path"] == (cached_dir / "metadata.json").resolve()
 
 
+def test_pinned_registry_cache_is_reused_before_hopsworks_login(tmp_path, monkeypatch):
+    settings = Settings(
+        model_dir=tmp_path / "serving",
+        hopsworks_api_key="configured",
+        hopsworks_project="project",
+        hopsworks_model_version=9,
+    )
+    cached_dir = settings.model_dir / "registry_cache" / "version_9"
+    _write_model_artifact(cached_dir)
+
+    def fail_login(self):
+        raise AssertionError("Pinned complete cache should be usable before Hopsworks login.")
+
+    monkeypatch.setattr(ModelRegistryClient, "_hopsworks_project", fail_login)
+
+    downloaded = ModelRegistryClient(settings).download_latest_hopsworks_model()
+
+    assert downloaded["version"] == 9
+    assert downloaded["artifact_dir"] == cached_dir.resolve()
+    assert downloaded["metadata_path"] == (cached_dir / "metadata.json").resolve()
+
+
 def test_registry_download_refreshes_incomplete_existing_cache(tmp_path, monkeypatch):
     settings = Settings(
         model_dir=tmp_path / "serving",
@@ -191,6 +213,23 @@ def test_registry_prefers_approved_model_over_newer_unapproved(tmp_path, monkeyp
     selected = ModelRegistryClient(settings)._select_hopsworks_model(FakeRegistry())
 
     assert selected.version == 4
+
+
+def test_registry_uses_pinned_model_version_when_configured(tmp_path):
+    class FakeRegistry:
+        def __init__(self):
+            self.requested = None
+
+        def get_model(self, name, version=None):
+            self.requested = (name, version)
+            return type("FakeModel", (), {"version": version})()
+
+    registry = FakeRegistry()
+    settings = Settings(model_dir=tmp_path, hopsworks_model_version=9)
+    selected = ModelRegistryClient(settings)._select_hopsworks_model(registry)
+
+    assert selected.version == 9
+    assert registry.requested == ("karachi_aqi_predictor", 9)
 
 
 def test_tensorflow_registry_artifacts_are_copied_to_controlled_cache(tmp_path, monkeypatch):

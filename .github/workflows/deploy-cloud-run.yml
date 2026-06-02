@@ -30,6 +30,7 @@ jobs:
             AQI_MAX_FORECAST_HOURS=72
             AQI_ALLOW_LOCAL_MODEL_FALLBACK=false
             AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY=true
+            HOPSWORKS_MODEL_VERSION=9
             ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}
             OPENWEATHER_API_KEY=${{ secrets.OPENWEATHER_API_KEY }}
             HOPSWORKS_API_KEY=${{ secrets.HOPSWORKS_API_KEY }}

@@ -33,10 +33,50 @@ logger = logging.getLogger(__name__)
 EXPLAINABILITY_DIR = "explainability"
 SHAP_SUMMARY_FILE = "shap_summary.json"
 FEATURE_IMPORTANCE_FILE = "feature_importance.json"
+LAST_MODEL_LOAD_STATUS: Dict[str, Any] = {
+    "status": "not_loaded",
+    "stage": None,
+    "error_category": None,
+    "source": None,
+    "version": None,
+    "updated_at": None,
+}
 
 
 class ModelLoadError(RuntimeError):
     """Raised when no trusted, schema-compatible model can be loaded."""
+
+    def __init__(self, message: str, category: str = "model_load_failed"):
+        super().__init__(message)
+        self.category = category
+
+
+def get_last_model_load_status() -> Dict[str, Any]:
+    return dict(LAST_MODEL_LOAD_STATUS)
+
+
+def _record_model_load_status(
+    status: str,
+    stage: Optional[str] = None,
+    error_category: Optional[str] = None,
+    source: Optional[str] = None,
+    version: Optional[int] = None,
+) -> None:
+    LAST_MODEL_LOAD_STATUS.update(
+        {
+            "status": status,
+            "stage": stage,
+            "error_category": error_category,
+            "source": source,
+            "version": version,
+            "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+    )
+
+
+def _log_model_event(event: str, **fields: Any) -> None:
+    safe_fields = {key: value for key, value in fields.items() if value is not None}
+    logger.info("model_load_event=%s details=%s", event, safe_fields)
 
 
 class TensorFlowModelBundle:
@@ -268,7 +308,13 @@ def load_model_bundle(settings: Settings) -> Tuple[Any, Dict[str, Any]]:
     registry_error: Optional[Exception] = None
     if settings.hopsworks_api_key and settings.hopsworks_project:
         try:
+            _record_model_load_status("loading", "model_registry_download_started")
             downloaded = registry.download_latest_hopsworks_model()
+            _log_model_event(
+                "model_registry_download_success",
+                version=downloaded.get("version"),
+                cache_dir=str(downloaded.get("artifact_dir")),
+            )
             return _load_trusted_model(
                 downloaded["artifact_dir"],
                 downloaded["metadata_path"],
@@ -278,11 +324,14 @@ def load_model_bundle(settings: Settings) -> Tuple[Any, Dict[str, Any]]:
             )
         except Exception as exc:
             registry_error = exc
+            category = getattr(exc, "category", "model_registry_download_failed")
+            _record_model_load_status("failed", "model_registry_download_failed", category)
+            _log_model_event("model_registry_download_failed", error_category=category)
             logger.warning("Hopsworks model registry load failed; evaluating local fallback.", exc_info=True)
 
     if not settings.allow_local_model_fallback:
         message = "No valid Hopsworks model is available and local model fallback is disabled."
-        raise ModelLoadError(message) from registry_error
+        raise ModelLoadError(message, category="model_registry_unavailable") from registry_error
 
     try:
         metadata_path = registry.model_dir / MODEL_METADATA_FILE
@@ -296,7 +345,9 @@ def load_model_bundle(settings: Settings) -> Tuple[Any, Dict[str, Any]]:
         logger.info("Loaded AQI model from explicit local development fallback.")
         return model, metadata
     except Exception as exc:
-        raise ModelLoadError("No valid AQI forecasting model is available.") from (registry_error or exc)
+        raise ModelLoadError("No valid AQI forecasting model is available.", category="model_load_failed") from (
+            registry_error or exc
+        )
 
 
 def _load_trusted_model(
@@ -309,24 +360,42 @@ def _load_trusted_model(
     artifact_dir = _safe_artifact_path(artifact_dir, trusted_root)
     metadata_path = _safe_artifact_path(metadata_path, trusted_root)
     if metadata_path.name != MODEL_METADATA_FILE:
-        raise ModelLoadError("Unexpected model metadata filename.")
+        _record_model_load_status("failed", "model_schema_validation_failed", "unexpected_metadata_filename")
+        _log_model_event("model_schema_validation_failed", error_category="unexpected_metadata_filename")
+        raise ModelLoadError("Unexpected model metadata filename.", category="unexpected_metadata_filename")
     if not artifact_dir.exists() or not artifact_dir.is_dir() or not metadata_path.exists():
-        raise ModelLoadError("Model artifact directory or metadata is missing.")
+        _record_model_load_status("failed", "model_registry_download_failed", "missing_model_artifact")
+        _log_model_event("model_registry_download_failed", error_category="missing_model_artifact")
+        raise ModelLoadError("Model artifact directory or metadata is missing.", category="missing_model_artifact")
     with metadata_path.open("r", encoding="utf-8") as handle:
         metadata = json.load(handle)
-    model_type, feature_columns = _validate_model_metadata(metadata)
+    try:
+        model_type, feature_columns = _validate_model_metadata(metadata)
+    except ModelLoadError as exc:
+        _record_model_load_status("failed", "model_schema_validation_failed", exc.category)
+        _log_model_event("model_schema_validation_failed", error_category=exc.category)
+        raise
+    _record_model_load_status("loading", "model_deserialization_started", source=source, version=registry_version)
+    _log_model_event("model_deserialization_started", source=source, version=registry_version, model_type=model_type)
     if model_type == "sklearn":
         model = _load_sklearn_model(artifact_dir, metadata)
     elif model_type == "tensorflow_keras":
         model = _load_tensorflow_model(artifact_dir, metadata)
     else:
-        raise ModelLoadError(f"Unsupported model type: {model_type}")
-    _validate_estimator_schema(model, feature_columns)
+        raise ModelLoadError(f"Unsupported model type: {model_type}", category="unsupported_model_type")
+    try:
+        _validate_estimator_schema(model, feature_columns)
+    except ModelLoadError as exc:
+        _record_model_load_status("failed", "model_schema_validation_failed", exc.category)
+        _log_model_event("model_schema_validation_failed", error_category=exc.category)
+        raise
     enriched = dict(metadata)
     enriched["serving_source"] = source
     enriched["registry_version"] = registry_version
     enriched["loaded_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     enriched["feature_count"] = len(feature_columns)
+    _record_model_load_status("ok", "model_deserialization_success", source=source, version=registry_version)
+    _log_model_event("model_deserialization_success", source=source, version=registry_version, model_type=model_type)
     return model, enriched
 
 
@@ -335,7 +404,7 @@ def _load_sklearn_model(artifact_dir: Path, metadata: Dict[str, Any]) -> Any:
     relative_path = artifacts.get("sklearn_model", MODEL_ARTIFACT_FILE) if isinstance(artifacts, dict) else MODEL_ARTIFACT_FILE
     model_path = _safe_artifact_path(artifact_dir / relative_path, artifact_dir)
     if model_path.name != MODEL_ARTIFACT_FILE or not model_path.exists():
-        raise ModelLoadError("Trusted Scikit-learn model artifact is missing.")
+        raise ModelLoadError("Trusted Scikit-learn model artifact is missing.", category="missing_sklearn_artifact")
     return joblib.load(model_path)
 
 
@@ -349,13 +418,13 @@ def _load_tensorflow_model(artifact_dir: Path, metadata: Dict[str, Any]) -> Tens
     keras_path = _safe_artifact_path(artifact_dir / keras_relative, artifact_dir)
     scaler_path = _safe_artifact_path(artifact_dir / scaler_relative, artifact_dir)
     if keras_path.name != "model.keras" or not keras_path.exists():
-        raise ModelLoadError("Trusted TensorFlow model artifact is missing.")
+        raise ModelLoadError("Trusted TensorFlow model artifact is missing.", category="missing_tensorflow_artifact")
     if scaler_path.name != "scaler.joblib" or not scaler_path.exists():
-        raise ModelLoadError("Trusted TensorFlow scaler artifact is missing.")
+        raise ModelLoadError("Trusted TensorFlow scaler artifact is missing.", category="missing_tensorflow_scaler")
     try:
         import tensorflow as tf
     except Exception as exc:
-        raise ModelLoadError("TensorFlow model selected, but TensorFlow is not installed.") from exc
+        raise ModelLoadError("TensorFlow model selected, but TensorFlow is not installed.", category="tensorflow_missing") from exc
     return TensorFlowModelBundle(tf.keras.models.load_model(str(keras_path)), joblib.load(scaler_path))
 
 
@@ -365,20 +434,26 @@ def _safe_artifact_path(path: Path, trusted_root: Path) -> Path:
     try:
         resolved.relative_to(trusted)
     except ValueError as exc:
-        raise ModelLoadError("Model artifact path is outside the trusted model directory.") from exc
+        raise ModelLoadError("Model artifact path is outside the trusted model directory.", category="unsafe_model_path") from exc
     return resolved
 
 
 def _validate_model_metadata(metadata: Dict[str, Any]) -> Tuple[str, List[str]]:
     model_type = metadata.get("model_type")
     if model_type not in {"sklearn", "tensorflow_keras"}:
-        raise ModelLoadError(f"Unsupported model type: {model_type}")
+        raise ModelLoadError(f"Unsupported model type: {model_type}", category="unsupported_model_type")
     feature_columns = metadata.get("feature_columns")
     if not isinstance(feature_columns, list) or not feature_columns:
-        raise ModelLoadError("Model metadata is missing a non-empty feature column schema.")
+        raise ModelLoadError(
+            "Model metadata is missing a non-empty feature column schema.",
+            category="missing_feature_schema",
+        )
     unknown = sorted(set(feature_columns) - set(FEATURE_COLUMNS))
     if unknown:
-        raise ModelLoadError(f"Model metadata contains unknown feature columns: {unknown}")
+        raise ModelLoadError(
+            f"Model metadata contains unknown feature columns: {unknown}",
+            category="unknown_feature_schema",
+        )
     return model_type, feature_columns
 
 
@@ -386,7 +461,8 @@ def _validate_estimator_schema(model: Any, feature_columns: List[str]) -> None:
     fitted_features = getattr(model, "n_features_in_", None)
     if fitted_features is not None and int(fitted_features) != len(feature_columns):
         raise ModelLoadError(
-            f"Model expects {fitted_features} features but metadata declares {len(feature_columns)}."
+            f"Model expects {fitted_features} features but metadata declares {len(feature_columns)}.",
+            category="feature_count_mismatch",
         )
 
 

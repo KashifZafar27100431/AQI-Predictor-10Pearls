@@ -124,8 +124,12 @@ def color_from_score(score: float) -> str:
 def alert_level(score: float) -> str:
     if score >= 301:
         return "hazardous"
+    if score >= 201:
+        return "very_unhealthy"
     if score >= 151:
         return "unhealthy"
+    if score >= 101:
+        return "sensitive_groups"
     return "normal"
 
 

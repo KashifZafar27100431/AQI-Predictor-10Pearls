@@ -2,6 +2,12 @@
 
 Serverless AQI forecasting system for Karachi, Pakistan. The project collects OpenWeather pollutant and weather data, engineers hourly features, stores reusable data in Hopsworks Feature Store, trains multiple models, registers the selected model in Hopsworks Model Registry, and serves 72-hour AQI forecasts through Flask and Streamlit.
 
+Deployed links:
+
+- GitHub: https://github.com/KashifZafar27100431/AQI-Predictor-10Pearls
+- Streamlit dashboard: https://karachi-aqi-predictor-10pearls.streamlit.app/
+- Vercel Flask API: https://aqi-predictor-10-pearls.vercel.app/
+
 ## Architecture
 
 ```mermaid
@@ -44,6 +50,8 @@ pip install -e .
 cp .env.example .env
 ```
 
+API-only Vercel dependencies are in `requirements-api.txt`. Development test/lint dependencies are in `requirements-dev.txt`.
+
 Optional TensorFlow experiment:
 
 ```bash
@@ -62,6 +70,9 @@ AQI_CITY=Karachi
 AQI_LAT=24.8607
 AQI_LON=67.0011
 AQI_TIMEZONE=Asia/Karachi
+AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY=true
+AQI_ALLOW_LOCAL_MODEL_FALLBACK=false
+HOPSWORKS_MODEL_VERSION=9
 ALLOWED_ORIGINS=http://localhost:8501,https://your-dashboard-url.streamlit.app
 ```
 
@@ -113,7 +124,11 @@ For production serving, use:
 ```bash
 AQI_ALLOW_LOCAL_MODEL_FALLBACK=false
 AQI_REQUIRE_HOPSWORKS_MODEL_REGISTRY=true
+HOPSWORKS_MODEL_VERSION=9
 ```
+
+`HOPSWORKS_MODEL_VERSION` is optional. When set, Flask and Streamlit load that exact registry version. Version 9 is the current deployed Ridge model and is pinned as a temporary production-stability measure until latest-model selection is proven stable across serverless cold starts. If unset, the loader falls back to the latest approved or latest available registered model.
+The Vercel/API runtime pins `scikit-learn==1.8.0` to match the serialized registry version 9 artifact and avoid joblib compatibility drift.
 
 The `/model-info` route and dashboard show model source, registry version, training timestamp, metrics, feature count, and latest feature timestamp. The dashboard also separates the latest observed Karachi AQI from the next-hour forecast.
 
@@ -144,19 +159,22 @@ Sample mode is for offline testing only. Live mode requires `OPENWEATHER_API_KEY
 ## API
 
 - `GET /health`
+- `GET /ready`
 - `GET /diagnostics`
 - `GET /latest`
 - `GET /predict?horizon=72`
-- `GET /alerts?limit=20`
+- `GET /alerts?limit=20&forecast=true`
 - `GET /model-info`
 
 Validation:
 
 - `horizon` must be an integer and is clamped to `1..72`.
 - `limit` must be an integer and is clamped to `1..500`.
+- `/alerts` returns stored alerts first. If no stored alert rows exist and `forecast=true`, it runs a non-persisted current forecast and returns any USG/unhealthy/hazardous forecast advisories.
 - API errors returned to clients are generic; detailed exceptions are logged server-side.
 - CORS is controlled by `ALLOWED_ORIGINS`; wildcard CORS is not used.
 - `/diagnostics` reports dependency and env-var presence only. It never returns secret values.
+- `/ready` checks env presence, imports, model cache writability, model registry/cache access, OpenWeather reachability, and city/timezone config without running a full 72-hour forecast.
 
 ## Automation
 
@@ -169,9 +187,10 @@ GitHub Actions:
 
 Dashboard deployment target: Streamlit Community Cloud. Set `API_BASE_URL=https://aqi-predictor-10-pearls.vercel.app` if the dashboard should call the Flask API; omit it to use the shared service code directly from Streamlit.
 
-Primary API deployment target: Vercel using `api/index.py`, `vercel.json`, and the lightweight `pyproject.toml` runtime dependencies. Cloud Run using the included `Dockerfile` remains the fallback if Vercel hits dependency size, timeout, memory, or TensorFlow-serving limits.
+Primary API deployment target: Vercel using `api/index.py`, `vercel.json`, and lightweight `requirements-api.txt` runtime dependencies. Cloud Run using the included `Dockerfile` remains the fallback if Vercel hits dependency size, timeout, memory, Hopsworks cold-start, pyarrow, or TensorFlow-serving limits.
 
 The `.streamlit/config.toml` file provides Streamlit Cloud defaults for theme, headless mode, CORS, XSRF protection, and disabled usage telemetry.
+Some command-line checks may see Streamlit Community Cloud auth redirects while normal browser access works; verify public access from a browser and do not weaken Streamlit security settings just to satisfy `curl`.
 
 See [docs/deployment.md](docs/deployment.md) for serverless deployment steps and required secrets.
 
@@ -200,6 +219,7 @@ Reports:
 ## Tests
 
 ```bash
+pip install -r requirements-dev.txt
 pytest
 ```
 
@@ -215,4 +235,7 @@ ruff check src app tests scripts
 
 - AQI score is derived from OpenWeather pollutant concentrations using EPA-style breakpoints. It is not an independent government station AQI reading.
 - OpenWeather historical air-pollution data is supported; historical weather availability depends on plan/API access. Sparse historical weather is handled by excluding high-missingness weather features from training.
+- Live forecasts can still use current/forecast weather fields when OpenWeather returns them, but the selected v9 model excludes weather columns because historical weather missingness is about 96%.
+- GitHub Actions feature ingestion is scheduled hourly but scheduled runs are best-effort and can drift. `/model-info`, `/ready`, and the dashboard expose latest feature freshness.
 - TensorFlow is eligible for selection and serving when installed, but current production metrics still favor Ridge Regression.
+- Alert levels are: `normal` for Good/Moderate, `sensitive_groups` for 101-150, `unhealthy` for 151-200, `very_unhealthy` for 201-300, and `hazardous` for 301-500.

@@ -45,12 +45,20 @@ class PredictionService:
         self._model_bundle: Optional[Tuple[Any, Dict[str, Any]]] = None
 
     def latest_features(self, limit: int = 24) -> pd.DataFrame:
-        return self.feature_store.read_feature_group(FEATURES_FEATURE_GROUP, limit=limit)
+        try:
+            return self.feature_store.read_feature_group(FEATURES_FEATURE_GROUP, limit=limit)
+        except Exception:
+            logger.warning("feature_store_read_failed feature_group=%s", FEATURES_FEATURE_GROUP, exc_info=True)
+            raise
 
     def _load_model_bundle(self) -> Tuple[Any, Dict[str, Any]]:
         if self._model_bundle is None:
             self._model_bundle = load_model_bundle(self.settings)
         return self._model_bundle
+
+    def model_metadata(self) -> Dict[str, Any]:
+        _, metadata = self._load_model_bundle()
+        return metadata
 
     def _forecast_frame(self, horizon: int, sample: bool = False) -> pd.DataFrame:
         if sample or self.settings.use_sample_data:
@@ -60,8 +68,12 @@ class PredictionService:
                 "OPENWEATHER_API_KEY is not configured. Use sample=true only for offline demos."
             )
 
-        pollution_payload = self.openweather.forecast_air_pollution()
-        weather_payload = self.openweather.forecast_weather()
+        try:
+            pollution_payload = self.openweather.forecast_air_pollution()
+            weather_payload = self.openweather.forecast_weather()
+        except OpenWeatherError:
+            logger.warning("openweather_forecast_failed city=%s", self.settings.city, exc_info=True)
+            raise
         pollution = pollution_payload_to_frame(
             pollution_payload, self.settings.city, self.settings.lat, self.settings.lon
         )
@@ -172,15 +184,38 @@ class PredictionService:
             return {"city": self.settings.city, "latest": None}
         return {"city": self.settings.city, "latest": json_records(frame.tail(1), self.settings.timezone)[0]}
 
-    def alerts_payload(self, limit: int = 20) -> Dict[str, Any]:
+    def alerts_payload(self, limit: int = 20, include_forecast: bool = True) -> Dict[str, Any]:
         limit = max(1, min(int(limit), self.settings.max_api_limit))
+        source = "stored_alerts"
         alerts = self.mongo_store.list_alerts(limit=limit)
         if not alerts:
             predictions = self.feature_store.read_feature_group(PREDICTIONS_FEATURE_GROUP, limit=200)
             if not predictions.empty and "alert_level" in predictions.columns:
-                filtered = predictions[predictions["alert_level"].isin(["unhealthy", "hazardous"])]
+                filtered = predictions[~predictions["alert_level"].isin(["normal", None])]
                 alerts = json_records(filtered.tail(limit), self.settings.timezone)
-        return {"city": self.settings.city, "alerts": alerts}
+                source = "prediction_feature_group"
+        if not alerts and include_forecast:
+            try:
+                forecast = self.predict(
+                    horizon=self.settings.forecast_hours,
+                    sample=False,
+                    store_predictions=False,
+                )
+                forecast_alerts = [
+                    record
+                    for record in forecast.get("predictions", [])
+                    if record.get("alert_level") not in {None, "normal"}
+                ]
+                alerts = forecast_alerts[:limit]
+                source = "current_forecast"
+            except Exception:
+                logger.warning("forecast_alert_generation_failed city=%s", self.settings.city, exc_info=True)
+        return {
+            "city": self.settings.city,
+            "alerts": alerts,
+            "source": source if alerts else "none",
+            "reason": None if alerts else "no_forecast_alerts",
+        }
 
     def model_info_payload(self) -> Dict[str, Any]:
         model, metadata = self._load_model_bundle()
@@ -192,27 +227,42 @@ class PredictionService:
             importance = explainability.get("top_features", []) or []
         if not importance and not latest.empty:
             importance = feature_importance(model, latest, feature_columns=feature_columns)
+        freshness = self._feature_freshness(latest)
+        latest_event_time = freshness.get("latest_feature_event_time")
+        latest_event_time_local = freshness.get("latest_feature_event_time_local")
+        if latest_event_time:
+            latest_event_time = pd.Timestamp(latest_event_time)
+        return {
+            "city": self.settings.city,
+            "model": metadata,
+            "data_freshness": freshness,
+            "feature_importance": importance,
+            "explainability": explainability if isinstance(explainability, dict) else {},
+        }
+
+    def _feature_freshness(self, latest: pd.DataFrame) -> Dict[str, Any]:
         latest_event_time = None
         latest_event_time_local = None
+        age_minutes = None
+        status = "unknown"
         if not latest.empty and "event_time" in latest.columns:
             latest_event_time = pd.to_datetime(latest["event_time"], utc=True).max()
+            now = pd.Timestamp(datetime.now(timezone.utc))
+            age_minutes = max(0.0, float((now - latest_event_time).total_seconds() / 60.0))
+            status = "fresh" if age_minutes <= 180 else "stale"
             latest_event_time_local = (
                 localize_event_time(pd.Series([latest_event_time]), self.settings.timezone)
                 .dt.strftime("%Y-%m-%dT%H:%M:%S%z")
                 .iloc[0]
             )
         return {
-            "city": self.settings.city,
-            "model": metadata,
-            "data_freshness": {
-                "latest_feature_event_time": latest_event_time.strftime("%Y-%m-%dT%H:%M:%SZ")
-                if latest_event_time is not None
-                else None,
-                "latest_feature_event_time_local": latest_event_time_local,
-                "timezone": self.settings.timezone,
-            },
-            "feature_importance": importance,
-            "explainability": explainability if isinstance(explainability, dict) else {},
+            "latest_feature_event_time": latest_event_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if latest_event_time is not None
+            else None,
+            "latest_feature_event_time_local": latest_event_time_local,
+            "latest_feature_age_minutes": age_minutes,
+            "status": status,
+            "timezone": self.settings.timezone,
         }
 
     def _clamp_horizon(self, horizon: int) -> int:
