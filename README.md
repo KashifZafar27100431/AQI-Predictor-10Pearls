@@ -231,11 +231,3 @@ Lint:
 ruff check src app tests scripts
 ```
 
-## Known Limitations
-
-- AQI score is derived from OpenWeather pollutant concentrations using EPA-style breakpoints. It is not an independent government station AQI reading.
-- OpenWeather historical air-pollution data is supported; historical weather availability depends on plan/API access. Sparse historical weather is handled by excluding high-missingness weather features from training.
-- Live forecasts can still use current/forecast weather fields when OpenWeather returns them, but the selected v9 model excludes weather columns because historical weather missingness is about 96%.
-- GitHub Actions feature ingestion is scheduled hourly but scheduled runs are best-effort and can drift. `/model-info`, `/ready`, and the dashboard expose latest feature freshness.
-- TensorFlow is eligible for selection and serving when installed, but current production metrics still favor Ridge Regression.
-- Alert levels are: `normal` for Good/Moderate, `sensitive_groups` for 101-150, `unhealthy` for 151-200, `very_unhealthy` for 201-300, and `hazardous` for 301-500.
