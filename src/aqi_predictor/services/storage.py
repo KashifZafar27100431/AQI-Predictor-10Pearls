@@ -5,7 +5,10 @@ import json
 import logging
 from pathlib import Path
 import shutil
+import signal
 import tempfile
+import threading
+import time
 from typing import Any, Dict, Iterable, List, Optional
 
 import pandas as pd
@@ -25,9 +28,43 @@ MODEL_METADATA_FILE = "metadata.json"
 logger = logging.getLogger(__name__)
 
 
+class HopsworksFeatureStoreError(RuntimeError):
+    """Raised when a bounded Hopsworks Feature Store operation fails."""
+
+
+class HopsworksOperationTimeout(HopsworksFeatureStoreError, TimeoutError):
+    """Raised when a Hopsworks Feature Store call exceeds the configured timeout."""
+
+
 def _log_runtime_event(event: str, **fields: Any) -> None:
     safe_fields = {key: value for key, value in fields.items() if value is not None}
     logger.info("runtime_event=%s details=%s", event, safe_fields)
+
+
+def _run_with_timeout(operation: str, timeout_seconds: int, callback: Any) -> Any:
+    if timeout_seconds <= 0:
+        return callback()
+    if threading.current_thread() is not threading.main_thread() or not hasattr(signal, "setitimer"):
+        logger.warning(
+            "hopsworks_operation_timeout_unavailable operation=%s timeout_seconds=%s",
+            operation,
+            timeout_seconds,
+        )
+        return callback()
+
+    def _timeout_handler(signum: int, frame: Any) -> None:
+        raise HopsworksOperationTimeout(
+            f"Hopsworks operation '{operation}' timed out after {timeout_seconds} seconds."
+        )
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        return callback()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
 
 
 class FeatureStoreClient:
@@ -72,12 +109,62 @@ class FeatureStoreClient:
             return None
         import hopsworks
 
-        project = hopsworks.login(
-            project=self.settings.hopsworks_project,
-            api_key_value=self.settings.hopsworks_api_key,
+        project = self._retry_hopsworks_operation(
+            "hopsworks_login",
+            lambda: hopsworks.login(
+                project=self.settings.hopsworks_project,
+                api_key_value=self.settings.hopsworks_api_key,
+            ),
         )
-        self._fs = project.get_feature_store()
+        self._fs = self._retry_hopsworks_operation(
+            "hopsworks_get_feature_store",
+            project.get_feature_store,
+        )
         return self._fs
+
+    def _retry_hopsworks_operation(self, operation: str, callback: Any) -> Any:
+        max_retries = max(1, int(self.settings.hopsworks_feature_store_max_retries))
+        timeout_seconds = max(0, int(self.settings.hopsworks_feature_store_timeout_seconds))
+        last_error: Optional[BaseException] = None
+        for attempt in range(1, max_retries + 1):
+            _log_runtime_event(
+                "hopsworks_feature_store_operation_started",
+                operation=operation,
+                attempt=attempt,
+                max_retries=max_retries,
+                timeout_seconds=timeout_seconds,
+            )
+            started = time.monotonic()
+            try:
+                result = _run_with_timeout(operation, timeout_seconds, callback)
+            except Exception as exc:
+                last_error = exc
+                elapsed_seconds = round(time.monotonic() - started, 3)
+                logger.warning(
+                    "hopsworks_feature_store_operation_failed operation=%s attempt=%s max_retries=%s "
+                    "elapsed_seconds=%s error_type=%s",
+                    operation,
+                    attempt,
+                    max_retries,
+                    elapsed_seconds,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                if attempt < max_retries:
+                    continue
+                break
+            elapsed_seconds = round(time.monotonic() - started, 3)
+            _log_runtime_event(
+                "hopsworks_feature_store_operation_success",
+                operation=operation,
+                attempt=attempt,
+                elapsed_seconds=elapsed_seconds,
+            )
+            return result
+
+        raise HopsworksFeatureStoreError(
+            f"Hopsworks Feature Store operation '{operation}' failed after {max_retries} attempt(s)."
+        ) from last_error
 
     def _insert_hopsworks(
         self,
@@ -89,18 +176,31 @@ class FeatureStoreClient:
         fs = self._hopsworks_feature_store()
         if fs is None:
             return
-        feature_group = fs.get_or_create_feature_group(
-            name=name,
-            version=1,
-            description=f"Pearls AQI Predictor feature group: {name}",
-            primary_key=primary_key,
-            event_time=event_time,
-            online_enabled=True,
+        feature_group = self._retry_hopsworks_operation(
+            f"feature_group_get_or_create:{name}",
+            lambda: fs.get_or_create_feature_group(
+                name=name,
+                version=1,
+                description=f"Pearls AQI Predictor feature group: {name}",
+                primary_key=primary_key,
+                event_time=event_time,
+                online_enabled=True,
+            ),
         )
-        try:
-            feature_group.insert(frame, wait=True)
-        except TypeError:
-            feature_group.insert(frame, write_options={"wait_for_job": True})
+
+        def _insert_without_materialization_wait() -> Any:
+            try:
+                return feature_group.insert(
+                    frame,
+                    write_options={"wait_for_job": self.settings.hopsworks_insert_wait_for_job},
+                )
+            except TypeError:
+                return feature_group.insert(frame, wait=self.settings.hopsworks_insert_wait_for_job)
+
+        self._retry_hopsworks_operation(
+            f"feature_group_insert:{name}",
+            _insert_without_materialization_wait,
+        )
 
     def insert_feature_group(
         self,
@@ -115,8 +215,17 @@ class FeatureStoreClient:
         clean = frame.copy()
         if event_time in clean.columns:
             clean[event_time] = pd.to_datetime(clean[event_time], utc=True)
+        _log_runtime_event(
+            "feature_group_insert_started",
+            feature_group=name,
+            rows=int(len(clean)),
+            primary_key=keys,
+            wait_for_job=self.settings.hopsworks_insert_wait_for_job,
+        )
         self._insert_local(name, clean, keys)
+        _log_runtime_event("local_feature_group_insert_success", feature_group=name, rows=int(len(clean)))
         self._insert_hopsworks(name, clean, keys, event_time=event_time)
+        _log_runtime_event("feature_group_insert_finished", feature_group=name, rows=int(len(clean)))
 
     def read_feature_group(self, name: str, limit: Optional[int] = None) -> pd.DataFrame:
         frame = pd.DataFrame()
@@ -129,7 +238,14 @@ class FeatureStoreClient:
             fs = None
         if fs is not None:
             try:
-                frame = fs.get_feature_group(name=name, version=1).read()
+                feature_group = self._retry_hopsworks_operation(
+                    f"feature_group_get:{name}",
+                    lambda: fs.get_feature_group(name=name, version=1),
+                )
+                frame = self._retry_hopsworks_operation(
+                    f"feature_group_read:{name}",
+                    feature_group.read,
+                )
                 if "event_time" in frame.columns:
                     frame["event_time"] = pd.to_datetime(frame["event_time"], utc=True)
             except Exception:

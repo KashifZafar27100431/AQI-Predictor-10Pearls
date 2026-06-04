@@ -89,6 +89,15 @@ class Settings:
     hopsworks_project: Optional[str] = field(
         default_factory=lambda: os.getenv("HOPSWORKS_PROJECT") or None
     )
+    hopsworks_feature_store_timeout_seconds: int = field(
+        default_factory=lambda: _int_env("HOPSWORKS_FEATURE_STORE_TIMEOUT_SECONDS", 90)
+    )
+    hopsworks_feature_store_max_retries: int = field(
+        default_factory=lambda: _int_env("HOPSWORKS_FEATURE_STORE_MAX_RETRIES", 2)
+    )
+    hopsworks_insert_wait_for_job: bool = field(
+        default_factory=lambda: _bool_env("HOPSWORKS_INSERT_WAIT_FOR_JOB", False)
+    )
 
     mongodb_uri: Optional[str] = field(default_factory=lambda: os.getenv("MONGODB_URI") or None)
     mongodb_database: str = field(
